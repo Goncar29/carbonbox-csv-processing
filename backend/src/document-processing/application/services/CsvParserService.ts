@@ -60,7 +60,10 @@ const findDuplicates = (columns: string[]): string[] =>
  */
 export class CsvParserService {
   parse(content: Buffer): Either<ValidationError, CsvParseResult> {
-    const text = content.toString('utf8');
+    const text = decodeUtf8(content);
+    if (text === null) {
+      return Either.left(new ValidationError('The file must be UTF-8 encoded. In Excel, use "Save as > CSV UTF-8".'));
+    }
     if (text.replace(/^﻿/, '').trim().length === 0) {
       return Either.left(new ValidationError('The file is empty'));
     }
@@ -72,6 +75,8 @@ export class CsvParserService {
         trim: true,
         skip_empty_lines: true,
         relax_column_count: true,
+        // A quote inside an unquoted value is kept literally (e.g. an inch mark: Steel pipe 2").
+        relax_quotes: true,
         info: true,
         // The library typings ignore that `info: true` wraps each record as { record, info }.
       }) as unknown as CsvRecord[];
@@ -157,8 +162,12 @@ export class CsvParserService {
       errors.push({ line, column, message, value: value(column) });
       return null;
     };
-    const required = (column: Column): string | null =>
-      value(column).length === 0 ? fail(column, 'is required') : value(column);
+    const required = (column: Column): string | null => {
+      if (value(column).length === 0) return fail(column, 'is required');
+      // PostgreSQL text columns cannot store NUL: a row error instead of a failed transaction.
+      if (value(column).includes('\u0000')) return fail(column, 'contains invalid characters');
+      return value(column);
+    };
 
     const category = required('category');
 
@@ -186,6 +195,23 @@ export class CsvParserService {
   }
 }
 
+/**
+ * Strict UTF-8 decoding: Buffer.toString('utf8') would silently replace the bytes of a
+ * Latin-1 / Windows-1252 file (Excel's default "CSV") with U+FFFD and store wrong text.
+ */
+const decodeUtf8 = (content: Buffer): string | null => {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(content);
+  } catch {
+    return null;
+  }
+};
+
+/** NUL cannot be stored in PostgreSQL text and line breaks would split the one-line-per-error report. */
+const escapeControlCharacters = (value: string): string =>
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what is escaped
+  value.replace(/[\u0000-\u001f\u007f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
 const truncate = (value: string): string =>
   value.length > MAX_VALUE_LENGTH ? `${value.slice(0, MAX_VALUE_LENGTH - 3)}...` : value;
 
@@ -196,7 +222,7 @@ const truncate = (value: string): string =>
 export const formatRowErrors = (errors: RowError[], maxLines = 100): string => {
   const lines = errors.slice(0, maxLines).map((error) => {
     const location = error.column ? `Row ${error.line}, column ${error.column}` : `Row ${error.line}`;
-    return `${location}: ${error.message} (value: "${truncate(error.value)}")`;
+    return `${location}: ${error.message} (value: "${truncate(escapeControlCharacters(error.value))}")`;
   });
   if (errors.length > maxLines) {
     lines.push(`...and ${errors.length - maxLines} more errors`);

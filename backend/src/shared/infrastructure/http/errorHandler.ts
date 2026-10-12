@@ -21,6 +21,12 @@ export const errorHandler = (error: FastifyError, request: FastifyRequest, reply
     return;
   }
 
+  // Schema validation (e.g. page=abc) is a validation error like the domain ones: same name.
+  if (error.validation) {
+    reply.status(400).send({ statusCode: 400, error: ValidationError.name, message: error.message });
+    return;
+  }
+
   if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
     reply
       .status(error.statusCode)

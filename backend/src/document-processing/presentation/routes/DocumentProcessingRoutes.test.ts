@@ -102,6 +102,16 @@ describe('Document processing HTTP API', () => {
       expect(response.json().message).toBe('A CSV file is required in the "file" field');
     });
 
+    it('stores the file as text/csv whatever content type the client declares', async () => {
+      const { payload, headers } = multipartFile('activity.csv', CSV, 'file', 'text/html');
+
+      const response = await app.inject({ method: 'POST', url: '/api/v1/uploads', payload, headers });
+
+      expect(response.statusCode).toBe(202);
+      const saved = uploads.uploads.get(response.json().id);
+      expect(storage.files.get(saved!.fileUrl)?.contentType).toBe('text/csv');
+    });
+
     it('rejects a file larger than the configured limit', async () => {
       const { payload, headers } = multipartFile('big.csv', 'x'.repeat(testConfig.maxUploadBytes + 1));
 
@@ -169,11 +179,15 @@ describe('Document processing HTTP API', () => {
       expect(body.data).toHaveLength(1);
     });
 
-    it.each(['page=0', 'limit=0', 'limit=101', 'page=abc'])('rejects invalid pagination: %s', async (query) => {
-      const response = await app.inject({ method: 'GET', url: `/api/v1/uploads?${query}` });
+    it.each(['page=0', 'limit=0', 'limit=101', 'page=abc', 'page=99999999999999999999', 'page=1000001'])(
+      'rejects invalid pagination with the uniform error shape: %s',
+      async (query) => {
+        const response = await app.inject({ method: 'GET', url: `/api/v1/uploads?${query}` });
 
-      expect(response.statusCode).toBe(400);
-    });
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({ statusCode: 400, error: 'ValidationError' });
+      },
+    );
   });
 
   describe('GET /api/v1/uploads/:id/results', () => {

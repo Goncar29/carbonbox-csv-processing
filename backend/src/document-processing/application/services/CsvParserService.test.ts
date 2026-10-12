@@ -131,6 +131,41 @@ describe('CsvParserService', () => {
     it('rejects malformed CSV syntax', () => {
       expect(parseFileError(`${HEADER}\n"Water,10,m3,2024-01-15\n`)).toMatch(/^Malformed CSV: /);
     });
+
+    it('rejects a file that is not UTF-8 instead of silently corrupting accented text', () => {
+      // "Calefacción" saved by Excel as Windows-1252 / Latin-1: "ó" is the single byte 0xF3.
+      const latin1 = Buffer.from(`${HEADER}\nCalefacci\xf3n,10,kWh,2024-01-15\n`, 'latin1');
+
+      const result = parser.parse(latin1);
+
+      expect(result.isLeft()).toBe(true);
+      expect((result.value as ValidationError).message).toBe(
+        'The file must be UTF-8 encoded. In Excel, use "Save as > CSV UTF-8".',
+      );
+    });
+  });
+
+  describe('real-world content', () => {
+    it('keeps accented UTF-8 text intact', () => {
+      expect(parseOk(`${HEADER}\nCalefacción,10,kWh,2024-01-15\n`).rows[0].category).toBe('Calefacción');
+    });
+
+    it('accepts a quote inside an unquoted value (inch mark) instead of failing the whole file', () => {
+      const result = parseOk(`${HEADER}\nWater,1,m3,2024-01-15\nSteel pipe 2",5,kg,2024-01-16\n`);
+
+      expect(result.failedRows).toBe(0);
+      expect(result.rows.map((row) => row.category)).toEqual(['Water', 'Steel pipe 2"']);
+    });
+
+    it('reports a NUL character as a row error, because the database cannot store it', () => {
+      const result = parseOk(`${HEADER}\nWater,1,m3,2024-01-15\nb\u0000x,2,kg,2024-01-16\n`);
+
+      expect(result.rows).toHaveLength(1);
+      expect(result.failedRows).toBe(1);
+      expect(result.errors).toEqual([
+        { line: 3, column: 'category', message: 'contains invalid characters', value: 'b\u0000x' },
+      ]);
+    });
   });
 });
 
@@ -159,6 +194,15 @@ describe('formatRowErrors', () => {
 
     expect(lines).toHaveLength(101);
     expect(lines[100]).toBe('...and 5 more errors');
+  });
+
+  it('escapes control characters, because the report is stored in a PostgreSQL text column', () => {
+    const text = formatRowErrors([
+      { line: 3, column: 'category', message: 'contains invalid characters', value: 'b\u0000x\ty' },
+    ]);
+
+    expect(text).toBe('Row 3, column category: contains invalid characters (value: "b\\u0000x\\u0009y")');
+    expect(text).not.toMatch(/[\u0000-\u001f]/);
   });
 
   it('truncates very long values', () => {

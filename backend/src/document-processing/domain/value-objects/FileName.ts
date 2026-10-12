@@ -19,6 +19,10 @@ export class FileName extends ValueObject<{ value: string }> {
     if (value.length > MAX_LENGTH) {
       return Either.left(new ValidationError(`File name cannot exceed ${MAX_LENGTH} characters`));
     }
+    // eslint-disable-next-line no-control-regex -- control characters are exactly what is rejected
+    if (/[\u0000-\u001f\u007f]/.test(value)) {
+      return Either.left(new ValidationError('File name cannot contain control characters'));
+    }
     if (/[\\/]/.test(value)) {
       return Either.left(new ValidationError('File name cannot contain path separators'));
     }

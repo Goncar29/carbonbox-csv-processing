@@ -27,4 +27,15 @@ describe('FileName', () => {
     expect(result.isLeft()).toBe(true);
     expect(result.value).toBeInstanceOf(ValidationError);
   });
+
+  it.each([
+    ['a NUL character', 'a\u0000b.csv'],
+    ['a line break', 'a\r\nb.csv'],
+    ['a DEL character', 'a\u007fb.csv'],
+  ])('rejects a name with %s, which storage and logs cannot handle safely', (_case, raw) => {
+    const result = FileName.create(raw);
+
+    expect(result.isLeft()).toBe(true);
+    expect((result.value as ValidationError).message).toBe('File name cannot contain control characters');
+  });
 });

@@ -2,7 +2,6 @@ export class CreateUploadCommand {
   constructor(
     readonly fileName: string,
     readonly content: Buffer,
-    readonly contentType: string,
     readonly userId: string,
   ) {}
 }

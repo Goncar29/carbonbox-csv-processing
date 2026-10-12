@@ -23,7 +23,7 @@ export class CreateUploadController extends BaseController {
     const content = await file.toBuffer();
 
     const result = await this.createUploadCommandHandler.execute(
-      new CreateUploadCommand(file.filename, content, file.mimetype, this.defaultUserId),
+      new CreateUploadCommand(file.filename, content, this.defaultUserId),
     );
 
     // 202 Accepted: the upload is registered, processing happens asynchronously.

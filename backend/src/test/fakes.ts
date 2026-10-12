@@ -148,13 +148,14 @@ export const multipartFile = (
   fileName: string,
   content: string,
   fieldName = 'file',
+  contentType = 'text/csv',
 ): { payload: Buffer; headers: Record<string, string> } => {
   const boundary = '----carbonbox-test-boundary';
   const payload = Buffer.from(
     [
       `--${boundary}`,
       `Content-Disposition: form-data; name="${fieldName}"; filename="${fileName}"`,
-      'Content-Type: text/csv',
+      `Content-Type: ${contentType}`,
       '',
       content,
       `--${boundary}--`,
