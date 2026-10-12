@@ -6,10 +6,12 @@ FROM node:24-bookworm-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
+# The postinstall script runs `prisma generate`, so the schema must be there before `npm ci`.
+COPY src/document-processing/infrastructure/persistence/models ./src/document-processing/infrastructure/persistence/models
 RUN npm ci
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
-RUN npx prisma generate && npm run build
+RUN npm run build
 # Keep the Prisma CLI out of the runtime image; the generated client stays in node_modules/.prisma.
 RUN npm prune --omit=dev
 
