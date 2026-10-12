@@ -116,12 +116,16 @@
 
 ## ¿Qué Aprendí?
 
-_Sección para completar con mis propias palabras al cierre de cada etapa._
+Ordenado por etapa. Escrito con mis palabras mientras trabajaba y leía documentación.
+
+### T1 — Infraestructura
 
 1. **LocalStack + SQS:**
    - Al comenzar la prueba no sabía que LocalStack existía.
    - Aprendí que es un emulador de AWS que se ejecuta localmente (en un contenedor Docker) y expone las mismas APIs que los servicios reales, en este caso S3 (almacenamiento) y SQS (el servicio de colas de mensajería de AWS).
    - Esto permite desarrollar y probar el flujo asíncrono sin una cuenta de AWS ni costos: el mismo código funcionará contra AWS real cambiando solo el endpoint y las credenciales.
+
+### T2 — Núcleo del backend
 
 2. **Either:**
    - Entendí que Either es una forma de no depender de `try/catch` ni de valores como `null` para indicar un error: se usa `Right` para decir que algo salió bien y `Left` para decir que algo falló.
@@ -135,12 +139,57 @@ _Sección para completar con mis propias palabras al cierre de cada etapa._
    - Viene de DDD y funciona como punto de defensa de la entrada desde el exterior.
    - Precisión que incorporé: es la frontera de consistencia; protege las invariantes (por ejemplo, no se puede completar un upload que nunca empezó a procesarse).
 
-5. **Reintento explícito en el Aggregate Root:**
-   - Entendí que si se agregaba `PROCESSING` a la tabla de transiciones, cualquier código podría llamar a `startProcessing()` dos veces y nadie se daría cuenta. Con un método con nombre propio (`restartProcessing()`), el reintento queda explícito e intencional.
+5. **Compilación vs. ejecución (TypeScript):**
+   - **Antes:** pensaba que TypeScript, por ser tipado, protegía todo, también cuando el programa ya está corriendo.
+   - **Ahora entiendo:** TypeScript transpila a JavaScript; por eso el desarrollador ve los errores de tipos antes de hacer el build, evitando que lleguen a producción. En ejecución, Node, con su motor V8, traduce el JS a lenguaje máquina sobre la marcha. Pero los tipos se borran al transpilar: no protegen los datos que llegan en ejecución.
 
-6. **Tests en verde no siempre significan que todo sale bien:**
+6. **Tipado estructural de TypeScript:**
+   - **Antes:** no sabía que TypeScript comparaba los tipos por su forma.
+   - **Ahora entiendo:** TypeScript es estructural: compara tipos por sus propiedades y métodos, no por su nombre. Dos clases con la misma forma son intercambiables para el compilador, como dos llaves con el mismo dentado que abren la misma puerta aunque tengan etiquetas distintas.
+
+### T3 — API
+
+7. **Puertos y adaptadores:**
+   - **Antes:** no entendía cómo funcionaba internamente, por detrás, la conexión entre la lógica y servicios como S3 o la base de datos.
+   - **Ahora entiendo:** se basa en la arquitectura: el dominio y la lógica de negocio no hablan directamente con el mundo exterior. Lo hacen a través de los puertos, que son contratos (interfaces) definidos por el núcleo. Los adaptadores son las clases que implementan esos contratos usando los frameworks: Fastify en la entrada (HTTP), y Prisma y el SDK de AWS en la salida.
+
+8. **Tests en verde no siempre significan que todo sale bien:**
    - Hay que analizarlos dependiendo del caso.
    - Ejemplo en este proyecto: los tests de API usan repositorios en memoria, así que prueban HTTP, controllers y handlers, pero no Prisma, S3 ni SQS. Por eso también se probó contra la infraestructura real (PostgreSQL + LocalStack). Un test solo prueba lo que afirma.
+
+### T4 — Procesamiento asíncrono
+
+9. **Reintento explícito en el Aggregate Root:**
+   - Entendí que si se agregaba `PROCESSING` a la tabla de transiciones, cualquier código podría llamar a `startProcessing()` dos veces y nadie se daría cuenta. Con un método con nombre propio (`restartProcessing()`), el reintento queda explícito e intencional.
+
+10. **Error de negocio vs. error técnico en la cola:**
+   - **Antes:** no distinguía entre tipos de error: un fallo era un fallo.
+   - **Ahora entiendo:** el error de negocio es cuando no se cumplen las reglas de negocio: si un CSV no cumple los requisitos, debe fallar, y reintentarlo no lo arregla. El error técnico, por ejemplo S3 caído, no es parte de la regla de negocio: ahí sí hay que intentar que se procese nuevamente.
+   - **En el proyecto:** el worker solo borra el mensaje cuando el resultado es definitivo. Un CSV que no cumple el formato deja el upload en `FAILED` y el mensaje se borra (reintentarlo no lo arregla); las filas inválidas sueltas se reportan y el upload queda `COMPLETED`. Un error técnico (S3 o la base caídos) no borra el mensaje: SQS lo vuelve a entregar cuando vence el visibility timeout (60 s) y, tras 3 intentos, el worker marca el upload `FAILED` y SQS mueve el mensaje a la DLQ. La espera creciente (1 s, 2 s, 4 s… hasta 30 s) se usa solo cuando el worker no puede leer de la cola.
+
+11. **Handler vs. servicio:**
+   - **Antes:** pensaba que el handler hacía todo.
+   - **Ahora entiendo:** funciona como en un restaurante: el mozo (handler) toma el pedido, lo lleva a la cocina y sirve el plato; el chef (servicio) decide cómo se cocina. Si cambia la receta, el mozo no se entera. En términos técnicos: el handler coordina el I/O (repositorios, S3, reintentos) y el servicio aplica la regla de negocio sin I/O, así que se testea solo con datos de entrada y salida.
+
+12. **Entrega "al menos una vez", idempotencia y el bug de concurrencia:**
+   - **Antes:** me lo imaginaba como funciona JavaScript: hace una sola cosa a la vez (por eso existe la asincronía) y termina una pila de trabajo antes de seguir con otra. Pensaba que un mensaje llegaba una sola vez.
+   - **Ahora entiendo:** los workers son procesos separados e independientes, cada uno con su propio event loop; por eso dos workers pueden procesar el mismo mensaje al mismo tiempo. El modelo de "una cosa a la vez" de JavaScript protege dentro de un proceso, no entre procesos. Como SQS puede entregar un mensaje más de una vez, el procesamiento tiene que ser idempotente: repetirlo varias veces debe dar el mismo resultado que hacerlo una sola vez.
+
+13. **Tests unitarios con fakes vs. integración con infraestructura real:**
+   - **Antes:** siempre creí que los tests son importantes, y que tenerlos en verde era señal de que todo estaba bien.
+   - **Ahora entiendo:** los tests en verde no siempre significan que todo está bien. Los unitarios con repositorios en memoria son rápidos y prueban la lógica, pero un `Map` no tiene transacciones ni concurrencia, así que hay bugs que no pueden ver. También aprendí que hay que ver un test en rojo antes de confiar en él: si nunca falló, no sé si detecta el error. Como aplicación futura, también quiero sumar pruebas de carga y de seguridad (medir cuántos requests soporta el sistema y cómo responde ante ataques).
+
+### T6 — Docker y despliegue
+
+14. **Docker multi-stage y migraciones separadas:**
+   - **Antes:** pensaba que una imagen llevaba una pequeña copia del código fuente que lo hacía funcionar rápido, pero al usarla se notaba el consumo de memoria de Docker.
+   - **Ahora entiendo:** la imagen es una foto del disco (sistema base, Node, dependencias y código): ocupa espacio y es lo que se descarga. La memoria la consume el contenedor mientras corre (y, en Windows, la máquina virtual de Docker Desktop). Con multi-stage se compila en una etapa y a producción solo va el resultado, sin las herramientas de desarrollo. Y las migraciones van aparte, una sola vez, porque varias instancias migrando a la vez competirían por la misma base.
+
+### Transversal — Trabajo con IA
+
+15. **Fecha de corte de la IA:**
+   - **Antes:** sabía en teoría que la IA tiene una fecha de corte, pero no lo había visto afectar un proyecto real.
+   - **Ahora entiendo:** la IA sabe hasta el punto en que fue entrenada; si hoy sale una versión nueva de una tecnología, no la va a saber aplicar realmente, porque no fue entrenada con ella, y ni siquiera sabe que no la conoce. Por eso, por más que exista la mejor IA, debo seguir en constante estudio: la IA puede cometer errores, no puede decidir todo, porque no sabe lo que realmente quiero, y hay criterios que debo tomar yo. Por ejemplo, si una web carga imágenes, decidir que se sirvan en un formato más optimizado como WebP para evitar sobrecargar la web.
 
 ## Limitaciones Encontradas con IA
 
