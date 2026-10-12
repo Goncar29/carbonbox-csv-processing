@@ -1,6 +1,6 @@
 # CarbonBox — Procesamiento Asíncrono de Documentos CSV
 
-> Estado: **en construcción** (etapa T1 de 6 completada). Este README se actualiza al cerrar cada etapa.
+> Estado: **en construcción** (etapa T2 de 6 completada). Este README se actualiza al cerrar cada etapa.
 > Seguimiento detallado: [`odd/tasks/carbonbox-document-processing.md`](odd/tasks/carbonbox-document-processing.md).
 
 ## 1. Descripción
@@ -33,6 +33,7 @@ cd backend
 cp .env.example .env
 npm install
 npx prisma migrate dev
+npm test             # tests unitarios del dominio
 # npm run dev        (disponible desde la etapa T3)
 
 # 3. Worker (otra terminal) — disponible desde la etapa T4
@@ -53,7 +54,23 @@ Los recursos de AWS se crean automáticamente al iniciar LocalStack mediante `in
 
 ## 4. Arquitectura
 
-_Se completa en las etapas T2–T4:_ bounded context `document-processing`, capas (domain, application, infrastructure, presentation), CQRS, Either pattern e inyección de dependencias con Awilix.
+Bounded context: **`document-processing`**. Las dependencias apuntan hacia adentro: `presentation → application → domain ← infrastructure`.
+
+| Capa | Contenido | Depende de |
+|------|-----------|------------|
+| `domain` | Aggregate Root `Upload`, entidad `ActivityData`, Value Objects `UploadStatus` y `FileName`, interfaces de repositorio | Nada externo |
+| `application` | Commands, Queries y sus handlers (CQRS) | `domain` |
+| `infrastructure` | Repositorios Prisma + mappers, S3, SQS, contenedor Awilix | `domain`, librerías |
+| `presentation` | Controllers y rutas Fastify | `application` |
+
+### Patrones
+
+- **Aggregate Root (`Upload`):** el estado solo cambia mediante `startProcessing()`, `complete()` y `fail()`, que aplican el ciclo de vida `PENDING → PROCESSING → COMPLETED | FAILED`. Nadie asigna `status` directamente, así que la regla vive en un único lugar.
+- **Value Objects:** `UploadStatus` (estados válidos y transiciones permitidas) y `FileName` (no vacío, extensión `.csv`, sin separadores de ruta, máximo 255 caracteres). Son inmutables y se validan al crearse.
+- **Either:** los errores de negocio esperables se devuelven como `Either.left(...)` con tipos `ValidationError` (400), `NotFoundError` (404) o `ConflictError` (409). Los fallos inesperados (base de datos caída, datos corruptos) se lanzan con `throw` y los captura el manejador de errores centralizado.
+- **CQRS a nivel de código:** misma base de datos, caminos separados para escritura (commands) y lectura (queries).
+- **Repository + Mapper:** el dominio define la interfaz (puerto); Prisma la implementa. Los mappers traducen filas de Prisma ↔ objetos de dominio, de modo que el dominio no conoce Prisma.
+- **Inyección de dependencias (Awilix, modo `CLASSIC`):** inyecta por nombre de parámetro del constructor, así las clases no dependen de Awilix. `strict: true` hace fallar el arranque si falta una dependencia.
 
 ## 5. Decisiones técnicas
 
@@ -65,6 +82,9 @@ _Se completa en las etapas T2–T4:_ bounded context `document-processing`, capa
 | `@@index([uploadId])` en `ActivityData` | PostgreSQL no indexa claves foráneas automáticamente y `GET /uploads/:id/results` filtra por `uploadId`. | Es un índice, no un campo: el modelo mantiene exactamente los campos del enunciado. |
 | Cola principal con Dead Letter Queue (`maxReceiveCount: 3`) | Un mensaje que falla 3 veces se aísla en la DLQ en lugar de reintentarse indefinidamente. | Requiere monitorear la DLQ. |
 | IDs sin `@default` en Prisma | Los IDs se generan en la capa de dominio (el agregado nace con identidad). | — |
+| TypeScript fijado en `5.9.3` | `typescript@latest` es la 7.x (port a Go) y `ts-jest` declara `"typescript": ">=4.3 <7"`. | No se usa el compilador nativo más rápido. |
+| Sin `ICommandBus` | Con 5 handlers, Awilix inyecta cada handler directamente en su controller; un bus agregaría indirección sin beneficio real. | Si crecieran los handlers o se necesitara middleware de commands (logging, transacciones), se agregaría un bus. |
+| Jest + ts-jest | Tests del dominio escritos antes de la implementación (TDD). | — |
 
 ## 6. Limitaciones conocidas
 

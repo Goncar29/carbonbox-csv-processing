@@ -28,7 +28,7 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 |----|-------|----------------|-------|--------|--------|
 | T0 | — | Repo init + ODD doc (10m) | inline | done | (see Log) |
 | T1 | S1, S8 | Infra: docker-compose postgres+localstack, bucket/queue init, Prisma schema + migration (30m) | inline | done | (see Log L10) |
-| T2 | S3, S5 | Backend core: shared (Either, CQRS, AggregateRoot), domain, Prisma repos, Awilix, Jest (50m) | inline | pending | |
+| T2 | S3, S5 | Backend core: shared (Either, CQRS, AggregateRoot), domain, Prisma repos, Awilix, Jest (50m) | inline | done | (see Log L16) |
 | T3 | S4, S5 | API: Fastify routes, controllers, query/command handlers, error middleware (40m) | inline | pending | |
 | T4 | S2, S6 | Async: S3 storage, SQS publisher/consumer, CSV parser (TDD), ProcessFile handler, worker (50m) | inline | pending | |
 | T5 | S7 | Frontend: Next.js pages, React Query hooks, polling (60m) | inline | pending | |
@@ -50,4 +50,8 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 - **L12 (decision):** User confirmed versions, including TypeScript pinned to 5.9 for T2 (npm `latest` is 7.0.2, the Go port). User-created `backend/.env.example` committed as-is (assistant cannot read `.env*`). Docs started as living documents: `README.md` (spec sections 1–7) and `USO-DE-IA.md` (spec template), both in Spanish to match the test; updated at each stage close. "¿Qué aprendí?" is left for the candidate's own words.
 - **L13 (2026-10-12, user, verbatim):** "los datos del .env.example si son los mismos que el .env para este caso que es una prueba y que alguien lo va a evaluar no hay problema que sean el mismo, en un caso de trabajo real no lo permitiriamos lo que aprendi aqui fue localstack, comenzando no sabia que existia, sqs + localstack, hoy aprendi que es un emulador de aws que podemos usar de manera local usando un servicio de mensajeria en la nube"
 - **L14 (docs):** Learning added to USO-DE-IA.md in the user's voice (precision: LocalStack emulates the AWS APIs locally, it does not connect to the cloud). `.env.example` = `.env` documented as a known limitation in README.
-- **Next:** T2 — backend core.
+- **L15 (2026-10-12, user, verbatim):** "vamos por la T2, aqui me gustaria que en el proceso me ayudes a entender mejor sobre Either, CQRS, AggregateRoot"
+- **L16 (T2 evidence):** TDD RED observed (missing modules) → GREEN: 49 unit tests pass (`npm test`), `npm run typecheck` OK. Repos smoke-tested against real Postgres through the Awilix container (save/upsert, transitions, createMany, paginate, read back, cleanup → 0 uploads). Pinned: typescript 5.9.3 (ts-jest peer `<7`), jest 30.5.2, ts-jest 29.4.14, awilix 13.0.5, tsx 4.23.15.
+- **L17 (decisions):** Either only for expected business errors (ValidationError 400, NotFoundError 404, ConflictError 409); unexpected failures throw to the central handler. No ICommandBus (YAGNI, documented in README; user may override). Awilix CLASSIC + strict. ActivityData.create enforces S2 rules on typed values; the YYYY-MM-DD string format check belongs to the CSV parser (T4).
+- **L18 (open for T4):** (a) SQS redelivery may find an upload already PROCESSING — decide retry semantics; (b) saving rows + completing the upload should be atomic (transaction); (c) all rows invalid → COMPLETED with failedRows or FAILED? (d) Dashboard counts by status (S7) have no endpoint in S4 — product decision before T5.
+- **Next:** T3 — API.

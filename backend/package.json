@@ -7,14 +7,24 @@
     "schema": "src/document-processing/infrastructure/persistence/models/schema.prisma"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy"
   },
   "dependencies": {
-    "@prisma/client": "6.19.3"
+    "@prisma/client": "6.19.3",
+    "awilix": "13.0.5"
   },
   "devDependencies": {
-    "prisma": "6.19.3"
+    "@types/jest": "30.0.0",
+    "@types/node": "24.19.2",
+    "jest": "30.5.2",
+    "prisma": "6.19.3",
+    "ts-jest": "29.4.14",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
   }
 }

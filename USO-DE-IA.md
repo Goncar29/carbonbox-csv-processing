@@ -27,8 +27,14 @@
 - [x] Schema de Prisma (a partir del schema mínimo del enunciado, sin campos adicionales)
 - [x] `.gitignore` y `.gitattributes`
 
-### Backend
-- [ ] _(etapas T2–T4)_
+### Backend — núcleo (T2)
+- [x] Configuración de TypeScript y Jest
+- [x] `Either`, `ValueObject`, `Entity`, `AggregateRoot` y errores de dominio tipados
+- [x] Dominio: `Upload`, `ActivityData`, `UploadStatus`, `FileName` (tests escritos primero, TDD)
+- [x] Interfaces de repositorio, repositorios Prisma, mappers y contenedor Awilix
+
+### Backend — API y procesamiento
+- [ ] _(etapas T3–T4)_
 
 ### Frontend
 - [ ] _(etapa T5)_
@@ -52,6 +58,15 @@
 4. **Finales de línea en Windows:**
    - Se agregó `.gitattributes` para forzar `LF` en los `.sh`: con `CRLF` el script de inicialización fallaría dentro del contenedor Linux.
 
+5. **Versión de TypeScript:**
+   - `typescript@latest` es la versión 7 (reescrita en Go). Antes de instalar se verificó que `ts-jest` solo soporta `<7`, por lo que se fijó `5.9.3`.
+
+6. **Estructura propuesta vs. criterio propio:**
+   - La estructura del enunciado incluye `ICommandBus.ts`. Decidí no implementarlo: con Awilix cada handler se inyecta directamente y un bus no aportaba valor con 5 handlers (documentado en el README).
+
+7. **Verificación más allá de los tipos:**
+   - Además de los 49 tests unitarios, los repositorios se probaron contra PostgreSQL real con un script temporal (crear, transicionar estados, guardar filas, paginar y limpiar).
+
 ## ¿Qué Aprendí?
 
 _Sección para completar con mis propias palabras al cierre de cada etapa._
@@ -74,7 +89,7 @@ _Sección para completar con mis propias palabras al cierre de cada etapa._
 |-------|----------|------|
 | T0 — Repositorio y plan | 10 min | ~10 min |
 | T1 — Infraestructura | 30 min | ~20 min |
-| T2 — Backend core | 50 min | |
+| T2 — Backend core | 50 min | ~35 min |
 | T3 — API | 40 min | |
 | T4 — Procesamiento asíncrono | 50 min | |
 | T5 — Frontend | 60 min | |
