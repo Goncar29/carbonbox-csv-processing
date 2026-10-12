@@ -105,6 +105,13 @@ _Sección para completar con mis propias palabras al cierre de cada etapa._
    - Viene de DDD y funciona como punto de defensa de la entrada desde el exterior.
    - Precisión que incorporé: es la frontera de consistencia; protege las invariantes (por ejemplo, no se puede completar un upload que nunca empezó a procesarse).
 
+5. **Reintento explícito en el Aggregate Root:**
+   - Entendí que si se agregaba `PROCESSING` a la tabla de transiciones, cualquier código podría llamar a `startProcessing()` dos veces y nadie se daría cuenta. Con un método con nombre propio (`restartProcessing()`), el reintento queda explícito e intencional.
+
+6. **Tests en verde no siempre significan que todo sale bien:**
+   - Hay que analizarlos dependiendo del caso.
+   - Ejemplo en este proyecto: los tests de API usan repositorios en memoria, así que prueban HTTP, controllers y handlers, pero no Prisma, S3 ni SQS. Por eso también se probó contra la infraestructura real (PostgreSQL + LocalStack). Un test solo prueba lo que afirma.
+
 ## Limitaciones Encontradas con IA
 
 1. **Información desactualizada por defecto:**
