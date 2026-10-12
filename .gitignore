@@ -21,6 +21,7 @@ coverage/
 
 # Logs
 *.log
+*.stackdump
 npm-debug.log*
 
 # OS / editors
