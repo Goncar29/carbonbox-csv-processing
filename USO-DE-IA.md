@@ -56,10 +56,10 @@
 
 _Sección para completar con mis propias palabras al cierre de cada etapa._
 
-1. **LocalStack:**
-   - _..._
-2. **Docker Compose (volúmenes y nombres de proyecto):**
-   - _..._
+1. **LocalStack + SQS:**
+   - Al comenzar la prueba no sabía que LocalStack existía.
+   - Aprendí que es un emulador de AWS que se ejecuta localmente (en un contenedor Docker) y expone las mismas APIs que los servicios reales, en este caso S3 (almacenamiento) y SQS (el servicio de colas de mensajería de AWS).
+   - Esto permite desarrollar y probar el flujo asíncrono sin una cuenta de AWS ni costos: el mismo código funcionará contra AWS real cambiando solo el endpoint y las credenciales.
 
 ## Limitaciones Encontradas con IA
 

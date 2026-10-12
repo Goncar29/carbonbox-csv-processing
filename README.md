@@ -68,6 +68,8 @@ _Se completa en las etapas T2–T4:_ bounded context `document-processing`, capa
 
 ## 6. Limitaciones conocidas
 
+- **`.env.example` con los mismos valores que `.env`:** decisión consciente para esta prueba, para que quien evalúe pueda levantar el proyecto copiando el archivo. Las credenciales son las de desarrollo local (LocalStack acepta `test`/`test`). En un entorno real, `.env.example` solo tendría claves con valores ficticios y los secretos vivirían en AWS Secrets Manager.
+
 _Se completa al cierre de cada etapa._
 
 ## 7. Cómo probarlo
