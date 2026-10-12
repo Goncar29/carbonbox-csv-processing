@@ -33,7 +33,7 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 | T2 | S3, S5 | Backend core: shared (Either, CQRS, AggregateRoot), domain, Prisma repos, Awilix, Jest (50m) | inline | done | (see Log L16) |
 | T3 | S4, S5 | API: Fastify routes, controllers, query/command handlers, error middleware, summary endpoint, S3 storage + SQS publisher (40m) | inline | done | (see Log L23) |
 | T4 | S2, S6 | Async: SQS consumer, CSV parser (TDD), ProcessFile handler, saveProcessingResult transaction, idempotent worker (50m) | inline | done (verify pending) | 2ec57db, 53f94a2 |
-| T5 | S7 | Frontend: Next.js pages, React Query hooks, polling (60m) | inline | pending | |
+| T5 | S7 | Frontend: Next.js pages, React Query hooks, polling (60m) | inline | done | (see Log L30) |
 | T6 | S8 | Docs: README, USO-DE-IA.md, AWS diagram, sample-data.csv, Dockerfile (20m) | inline | pending | |
 
 ## Log
@@ -65,4 +65,7 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 - **L25 (T4 part 1 evidence):** `Upload.restartProcessing()` added (PROCESSING → PROCESSING only, explicit method; lifecycle table unchanged, `startProcessing` twice still rejected). RED (TS2339 missing method) → GREEN: 70 tests, typecheck OK.
 - **L26 (2026-10-12, user, verbatim):** "vamos con T4 parser CSV con TDD, transacción y worker idempotente"
 - **L27 (T4 evidence, commit 53f94a2):** RED observed for parser, Upload.complete report, handler and worker → GREEN: 119 tests, typecheck OK. `Upload.complete(counters, rowErrorReport?)` now requires a report when failedRows > 0 (old test updated intentionally). Real E2E (API + worker processes, Postgres + LocalStack): T3 leftover upload → COMPLETED 1/1; mixed CSV → COMPLETED 2/4 with row/column report; missing `amount` column → FAILED; main queue and DLQ empty afterwards. Pinned csv-parse 7.0.3, pino 10.4.0. Risk: item 4 (concurrency: redelivery, transaction, last-attempt) → independent verifier launched on c5a471b..53f94a2 in an isolated DB/bucket/queues.
-- **Next:** verifier verdict → corrections (bounded) → T5 frontend.
+- **L28 (2026-10-12, user, verbatim):** "relancemos el verificador de T4" → previous session closed before the verdict arrived; verifier relaunched in background with the same isolated resources.
+- **L29 (2026-10-12, user, verbatim):** "mientras corre el agente, vamos por T5"
+- **L30 (T5 evidence):** Next 16.4 App Router + React Query 5 + Axios + Tailwind 4 (CSS-first, no tailwind.config: v4 uses @tailwindcss/postcss). Structure follows the spec (features/document-processing/{api,components,types}, shared/{components,lib}); pages are thin server components, data components are client components. Polling: refetchInterval returns 3000 while status is not COMPLETED/FAILED (L2). Results query enabled only when COMPLETED; errorMessage rendered one line per error. Added UploadsSummary (dashboard, uses /uploads/summary) and ErrorAlert. No frontend test runner (spec does not require one) → checks: next build OK, tsc OK, all 4 routes 200, real flow against API+worker (mixed CSV → COMPLETED 2/5 with 3 row/column errors, results 2 rows), CORS preflight from :3000 OK, .txt rejected 400. Browser check not possible (Chrome extension not connected) → manual check by user pending.
+- **Next:** T4 verifier verdict → bounded corrections → T6 docs.
