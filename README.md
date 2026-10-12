@@ -1,6 +1,6 @@
 # CarbonBox — Procesamiento Asíncrono de Documentos CSV
 
-> Estado: **en construcción** (etapa T4 de 6 completada: backend completo de punta a punta). Este README se actualiza al cerrar cada etapa.
+> Estado: **completo** (6 de 6 etapas). Backend, worker asíncrono, frontend, Docker y diagrama de AWS.
 > Seguimiento detallado: [`odd/tasks/carbonbox-document-processing.md`](odd/tasks/carbonbox-document-processing.md).
 
 ## 1. Descripción
@@ -39,8 +39,25 @@ npm run dev          # API en http://localhost:3001
 # 3. Worker (otra terminal, desde backend/)
 npm run worker
 
-# 4. Frontend (otra terminal) — disponible desde la etapa T5
-# cd frontend && npm install && npm run dev
+# 4. Frontend (otra terminal, desde la raíz)
+cd frontend
+npm install
+npm run dev          # http://localhost:3000
+```
+
+El frontend apunta por defecto a `http://localhost:3001/api/v1`; para otra URL, definir `NEXT_PUBLIC_API_URL` en `frontend/.env.local`.
+
+### Imagen Docker del backend
+
+`backend/Dockerfile` genera **una sola imagen** para la API y el worker (en AWS son dos servicios ECS con distinto comando):
+
+```bash
+cd backend
+docker build -t carbonbox-backend .
+# API (comando por defecto) y worker (comando sobrescrito). HOST=0.0.0.0 para aceptar conexiones desde fuera del contenedor;
+# host.docker.internal reemplaza a localhost para llegar a Postgres y LocalStack del host.
+docker run --env-file .env -e HOST=0.0.0.0 -e AWS_ENDPOINT=http://host.docker.internal:4566 -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5433/document_processing -p 3001:3001 carbonbox-backend
+docker run --env-file .env -e AWS_ENDPOINT=http://host.docker.internal:4566 -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5433/document_processing carbonbox-backend node dist/workers/index.js
 ```
 
 ### Servicios locales
@@ -112,6 +129,17 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 | `infrastructure` | Repositorios Prisma + mappers, S3, SQS, contenedor Awilix | `domain`, librerías |
 | `presentation` | Controllers y rutas Fastify | `application` |
 
+**Frontend** (`frontend/src`): misma idea de *screaming architecture* — `features/document-processing/{api,components,types}` y `shared/{components,lib}`. Las páginas de `app/` son finas (server components que solo leen `params`/`searchParams` y montan un componente); los componentes de la feature son client components con hooks de React Query.
+
+| Ruta | Contenido |
+|------|-----------|
+| `/` | Dashboard: total, completados, en proceso (pendientes + procesando) y fallidos, con link a nuevo upload |
+| `/uploads` | Tabla paginada (10 por página) con badges de color por estado y link al detalle |
+| `/uploads/new` | Drag & drop o selector, solo `.csv`, barra de progreso de subida y redirección al detalle |
+| `/uploads/[id]` | Datos del upload, barra mientras está `PENDING`/`PROCESSING`, polling cada 3 s, tabla de resultados al completar y lista de errores por fila/columna |
+
+**Infraestructura en AWS:** diagrama y explicación en [`docs/arquitectura-aws.md`](docs/arquitectura-aws.md) (VPC con subnets públicas/privadas, ALB, ECS Fargate API + Worker, RDS Multi-AZ, S3, SQS + DLQ, CloudWatch, Secrets Manager).
+
 ### Patrones
 
 - **Aggregate Root (`Upload`):** el estado solo cambia mediante `startProcessing()`, `complete()` y `fail()`, que aplican el ciclo de vida `PENDING → PROCESSING → COMPLETED | FAILED`. Nadie asigna `status` directamente, así que la regla vive en un único lugar.
@@ -142,6 +170,13 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 | `csv-parse` en lugar de `split(',')` | Maneja comillas con comas, `\r\n`, BOM de Excel y reporta el número de línea real de cada registro. | Una dependencia más. |
 | `restartProcessing()` como método aparte | El reintento tras una caída es explícito; la tabla de transiciones sigue estricta y `startProcessing()` dos veces sigue fallando. | — |
 | Errores de fila en `errorMessage` (texto, una línea por error) | Respeta el schema mínimo: no se agregan campos ni tablas. | Para filtrar errores por columna habría que parsear el texto; con más tiempo, una tabla `RowError`. |
+| Polling con `refetchInterval` de React Query | La función recibe el último dato y devuelve `3000` o `false`: el polling se corta solo al llegar a `COMPLETED`/`FAILED`, sin `setInterval` ni limpieza manual. Sigue mientras el estado **no sea final** (también en `PENDING`), no solo en `PROCESSING` como dice el enunciado, para no quedar congelado si el worker aún no tomó el mensaje. | Una request cada 3 s por pestaña abierta; con muchos usuarios convendría WebSocket/SSE. |
+| Resultados solo con `COMPLETED` | La query de `/results` usa `enabled`; no se piden filas que todavía no existen. | — |
+| Barra de progreso indeterminada | El worker guarda los contadores al final (en la transacción), así que no hay un porcentaje real que mostrar durante `PROCESSING`. | Para progreso real habría que persistir avances parciales. |
+| Tailwind CSS 4 sin `tailwind.config.ts` | Tailwind 4 se configura desde CSS (`@import 'tailwindcss'`) y se integra con `@tailwindcss/postcss`; el archivo de configuración que lista el enunciado ya no es necesario. | Desvío de la estructura sugerida, por versión. |
+| Next.js 16 (App Router) | Cumple "Next.js 14+"; en 15+ `params` y `searchParams` son `Promise` y se esperan con `await`. | — |
+| Diagrama de AWS en Mermaid (`docs/arquitectura-aws.md`) en lugar de PNG | El enunciado acepta Mermaid; se versiona como texto y GitHub lo renderiza. | Hay que verlo en un visor de Markdown con Mermaid. |
+| Una imagen Docker para API y worker | Mismo código y dependencias; en ECS cambia solo el comando. Multi-stage: la imagen final no lleva TypeScript ni el CLI de Prisma. | Las migraciones van como task aparte del pipeline. |
 | `GET /uploads/summary` | El dashboard necesita conteos por estado y ningún endpoint del enunciado los provee. Decisión del candidato; no agrega campos a la base. | Endpoint adicional al enunciado. |
 
 ## 6. Limitaciones conocidas
@@ -151,8 +186,30 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 - **Publicación no atómica en `POST /uploads`:** si SQS falla después de guardar en la base, el upload queda en `PENDING` sin mensaje. **Con más tiempo:** patrón *Transactional Outbox* (guardar el mensaje en la misma transacción y publicarlo desde un proceso aparte).
 - **Sin `IHttpRequest` / `IHttpResponse`:** los controllers usan los tipos de Fastify directamente; la capa de presentación es, por definición, dependiente del framework.
 
-_Se completa al cierre de cada etapa._
+- **Primer guardado de `PROCESSING` sin condición de estado (A5):** en una carrera muy justa entre dos workers, un upload ya `COMPLETED` podría volver un instante a `PROCESSING`. No duplica filas (el bloqueo de fila lo impide) y el estado final es `COMPLETED`, pero el polling podría ver el estado retroceder un momento. **Con más tiempo:** update condicional `WHERE status IN ('PENDING','PROCESSING')`.
+- **Reporte de errores:** muestra hasta 100 errores y una línea final `...and N more errors`. Un `amount` que desborda a `Infinity` se reporta sin columna; años 0000–0099 se rechazan; un campo entre comillas que ocupa dos líneas se reporta en su última línea. Todos son casos fuera del dominio esperado.
+- **Sin autenticación:** `userId` fijo `"user-123"`, como pide el enunciado.
+- **Frontend sin tests automatizados:** verificado con `next build` + `tsc` y prueba manual del flujo completo; con más tiempo, tests de componentes con Testing Library y MSW.
+- **Polling en lugar de push:** suficiente para la prueba; a escala, SSE o WebSocket.
 
 ## 7. Cómo probarlo
 
-_Se completa en la etapa T6 (incluye `sample-data.csv` con más de 50 filas)._
+Con todo levantado (sección 3): **http://localhost:3000**.
+
+1. **Archivo válido:** en *New upload*, arrastrar `sample-data.csv` (raíz del repo, 60 filas). La app redirige al detalle.
+2. **Qué observar:** el badge pasa de `PENDING` (amarillo) a `PROCESSING` (azul) y a `COMPLETED` (verde) **sin recargar** (polling cada 3 s; en la pestaña *Network* del navegador se ve `GET /uploads/:id` cada 3 s y se detiene al terminar). Aparece la tabla con las 60 filas procesadas y los contadores `60 / 60`.
+3. **Errores por fila:** subir `docs/sample-data-with-errors.csv`. Termina `COMPLETED` con 2 filas guardadas y 6 rechazadas, cada una con fila, columna y valor:
+   ```
+   Row 3, column amount: must be a positive number (value: "-20")
+   Row 4, column category: is required (value: "")
+   ...
+   ```
+4. **Archivo inválido:** subir un CSV sin la columna `amount` → `FAILED` (rojo) con el motivo. Un `.txt` se rechaza en el formulario y en la API (`400`).
+5. **Lista y dashboard:** `/uploads` muestra todos los uploads paginados; `/` muestra los totales por estado.
+6. **Asincronía:** detener el worker (`Ctrl+C`), subir un archivo (queda `PENDING`, la página sigue consultando) y volver a iniciar el worker: el upload se procesa solo.
+
+Tests del backend: `npm test` (122 unitarios y de API). Test de integración del bloqueo de fila contra una base **descartable** ya migrada:
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/<base_de_prueba> npm test -- PrismaUploadRepository
+```

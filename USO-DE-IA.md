@@ -45,8 +45,17 @@
 - [x] Consumidor SQS y worker con backoff exponencial
 - [x] Verificación independiente con un subagente que no escribió el código (ver más abajo)
 
-### Frontend
-- [ ] _(etapa T5)_
+### Frontend (T5)
+- [x] Páginas del App Router (`/`, `/uploads`, `/uploads/new`, `/uploads/[id]`) con la estructura de carpetas del enunciado
+- [x] Hooks de React Query (`uploadsApi.ts`) con polling por `refetchInterval` y cliente Axios configurado
+- [x] Formulario con drag & drop, validación `.csv` y barra de progreso de subida
+- [x] Estilos con Tailwind CSS 4 y badges de color por estado
+
+### Documentación y despliegue (T6)
+- [x] `sample-data.csv` (60 filas) y `docs/sample-data-with-errors.csv`
+- [x] `backend/Dockerfile` multi-stage (una imagen para API y worker), verificado con `docker build` y `docker run`
+- [x] Diagrama de AWS en Mermaid (`docs/arquitectura-aws.md`)
+- [x] README final (sección "Cómo probarlo")
 
 ## ¿Qué Modifiqué o Corregí?
 
@@ -96,6 +105,15 @@
 13. **Tipos de una librería que no reflejan la realidad:**
     - Los tipos de `csv-parse` no contemplan que la opción `info: true` cambia la forma del resultado. Se verificó en vivo la forma real antes de hacer la conversión de tipos, y se dejó el motivo en un comentario.
 
+14. **Dos bugs de concurrencia que los tests no veían (hallados por el verificador independiente):**
+    - **B1:** si la transacción fallaba en el último intento, el upload quedaba en `PROCESSING` para siempre (el frontend hacía polling infinito). Causa: el agregado ya estaba en `COMPLETED` en memoria y `COMPLETED → FAILED` no es válido. El repositorio en memoria de los tests compartía el mismo objeto y lo escondía. Corrección: el fake guarda copias y el worker recarga el upload antes de marcarlo `FAILED`.
+    - **B2:** dos workers con el mismo mensaje duplicaban las filas. Corrección: bloqueo de fila (`SELECT ... FOR UPDATE`) y escrituras condicionadas al estado. Probado con un test de integración contra PostgreSQL real.
+    - Decidí corregir ambos (aunque B2 solo aparece con varios workers) porque el diagrama de AWS escala el worker en ECS. Una observación menor (A5) quedó documentada como limitación.
+
+15. **Comando de Docker incompleto:** la primera versión del comando `docker run` del README no funcionaba (la API escuchaba solo en localhost dentro del contenedor). Se detectó al probarlo y se agregó `HOST=0.0.0.0`.
+
+16. **Estimación de tiempo equivocada:** la IA había anotado "~3 h usadas" en su memoria; al medirlo con los timestamps de git eran ~2 h. La tabla de tiempos se recalculó con git.
+
 ## ¿Qué Aprendí?
 
 _Sección para completar con mis propias palabras al cierre de cada etapa._
@@ -130,16 +148,20 @@ _Sección para completar con mis propias palabras al cierre de cada etapa._
    - Las versiones "recomendadas" (`latest`) no siempre son las adecuadas: hubo que verificar en npm, Docker Hub y la documentación oficial antes de fijarlas.
 2. **El entorno local no es visible para la IA hasta que algo falla:**
    - El conflicto con el PostgreSQL nativo solo apareció al ejecutar la migración; se diagnosticó revisando qué procesos escuchaban en el puerto 5432.
+3. **La sesión se cerró a mitad de una verificación:** el veredicto del verificador se perdió y hubo que relanzarlo. El documento de seguimiento y los commits permitieron retomar sin perder trabajo.
+4. **Herramientas del entorno:** la extensión de Chrome no estaba conectada (la prueba visual del frontend quedó para hacerla a mano) y `curl` de Git Bash subía como vacío un archivo con un byte NUL, lo que al principio parecía un bug de la API.
 
 ## Tiempo Invertido
 
 | Etapa | Estimado | Real |
 |-------|----------|------|
-| T0 — Repositorio y plan | 10 min | ~10 min |
-| T1 — Infraestructura | 30 min | ~20 min |
-| T2 — Backend core | 50 min | ~35 min |
-| T3 — API | 40 min | ~40 min |
-| T4 — Procesamiento asíncrono | 50 min | ~55 min |
-| T5 — Frontend | 60 min | |
-| T6 — Documentación final | 20 min | |
-| **Total** | **4 h** | |
+| T0 — Lectura del enunciado, repositorio y plan | 10 min | ~15 min (antes del primer commit, 11:40) |
+| T1 — Infraestructura | 30 min | ~28 min (11:40 → 12:08) |
+| T2 — Backend core | 50 min | ~21 min (12:08 → 12:29) |
+| T3 — API | 40 min | ~12 min (12:29 → 12:41) |
+| T4 — Procesamiento asíncrono + corrección de B1/B2 | 50 min | ~32 min (12:41 → 12:59 y 13:13 → 13:27) |
+| T5 — Frontend | 60 min | ~14 min (12:59 → 13:13, en paralelo con la verificación de T4) |
+| T6 — Documentación final | 20 min | ~20 min (13:27 → ~13:47) |
+| **Total** | **4 h** | **~2 h 20 min** |
+
+Medido con los timestamps de los commits (`git log`). Incluye el tiempo de una sesión de IA que se cerró y hubo que retomar.
