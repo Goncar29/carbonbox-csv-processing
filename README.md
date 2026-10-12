@@ -197,7 +197,7 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 Con todo levantado (sección 3): **http://localhost:3000**.
 
 1. **Archivo válido:** en *New upload*, arrastrar `sample-data.csv` (raíz del repo, 60 filas). La app redirige al detalle.
-2. **Qué observar:** el badge pasa de `PENDING` (amarillo) a `PROCESSING` (azul) y a `COMPLETED` (verde) **sin recargar** (polling cada 3 s; en la pestaña *Network* del navegador se ve `GET /uploads/:id` cada 3 s y se detiene al terminar). Aparece la tabla con las 60 filas procesadas y los contadores `60 / 60`.
+2. **Qué observar:** el badge pasa de `PENDING` (amarillo) a `PROCESSING` (azul) y a `COMPLETED` (verde) **sin recargar**. Un archivo de 60 filas se procesa en menos de un segundo, así que normalmente la primera consulta ya lo encuentra `COMPLETED` y el polling no llega a repetirse; para **ver** el polling usar el paso 6. Aparece la tabla con las 60 filas procesadas y los contadores `60 / 60`.
 3. **Errores por fila:** subir `docs/sample-data-with-errors.csv`. Termina `COMPLETED` con 2 filas guardadas y 6 rechazadas, cada una con fila, columna y valor:
    ```
    Row 3, column amount: must be a positive number (value: "-20")
@@ -206,7 +206,7 @@ Con todo levantado (sección 3): **http://localhost:3000**.
    ```
 4. **Archivo inválido:** subir un CSV sin la columna `amount` → `FAILED` (rojo) con el motivo. Un `.txt` se rechaza en el formulario y en la API (`400`).
 5. **Lista y dashboard:** `/uploads` muestra todos los uploads paginados; `/` muestra los totales por estado.
-6. **Asincronía:** detener el worker (`Ctrl+C`), subir un archivo (queda `PENDING`, la página sigue consultando) y volver a iniciar el worker: el upload se procesa solo.
+6. **Asincronía y polling:** detener el worker (`Ctrl+C`) y subir un archivo: queda `PENDING` y en la pestaña *Network* (filtro `uploads`) aparece `GET /uploads/:id` **cada 3 s**. Volver a iniciar el worker: el upload pasa a `COMPLETED` sin recargar, se piden los resultados y **las consultas se detienen**. El polling se pausa si la pestaña no está visible (comportamiento por defecto de React Query) y se reanuda al volver.
 
 Tests del backend: `npm test` (122 unitarios y de API). Test de integración del bloqueo de fila contra una base **descartable** ya migrada:
 
