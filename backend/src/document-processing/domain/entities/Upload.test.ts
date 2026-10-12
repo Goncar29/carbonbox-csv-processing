@@ -112,6 +112,39 @@ describe('Upload aggregate', () => {
     });
   });
 
+  describe('restartProcessing', () => {
+    it('keeps PROCESSING when a crashed attempt is retried', () => {
+      const upload = processingUpload();
+      const before = upload.updatedAt;
+
+      const result = upload.restartProcessing();
+
+      expect(result.isRight()).toBe(true);
+      expect(upload.status).toBe('PROCESSING');
+      expect(upload.updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    });
+
+    it.each([
+      ['PENDING', (u: Upload) => u],
+      ['COMPLETED', (u: Upload) => (u.startProcessing(), u.complete({ totalRows: 1, processedRows: 1, failedRows: 0 }), u)],
+      ['FAILED', (u: Upload) => (u.startProcessing(), u.fail('boom'), u)],
+    ])('rejects a restart from %s', (status, prepare) => {
+      const upload = prepare(newUpload());
+
+      const result = upload.restartProcessing();
+
+      expect(result.isLeft()).toBe(true);
+      expect(result.value).toBeInstanceOf(ConflictError);
+      expect(upload.status).toBe(status);
+    });
+
+    it('does not open the generic transition: startProcessing twice is still rejected', () => {
+      const upload = processingUpload();
+
+      expect(upload.startProcessing().isLeft()).toBe(true);
+    });
+  });
+
   describe('complete', () => {
     it('moves PROCESSING to COMPLETED and stores the row counters', () => {
       const upload = processingUpload();

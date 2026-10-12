@@ -129,6 +129,21 @@ export class Upload extends AggregateRoot<UploadProps> {
     return this.transitionTo(UploadStatus.processing());
   }
 
+  /**
+   * Retry after a crashed attempt: SQS redelivers the message while the upload
+   * is still PROCESSING. Kept separate from startProcessing so the lifecycle
+   * table stays strict and a retry is always an explicit decision.
+   */
+  restartProcessing(): Either<ConflictError, void> {
+    if (!this.props.status.equals(UploadStatus.processing())) {
+      return Either.left(
+        new ConflictError(`Cannot restart processing from ${this.props.status.value}; only PROCESSING can be retried`),
+      );
+    }
+    this.props.updatedAt = new Date();
+    return Either.right(undefined);
+  }
+
   complete(counters: RowCounters): Either<ConflictError | ValidationError, void> {
     const { totalRows, processedRows, failedRows } = counters;
     if (![totalRows, processedRows, failedRows].every(isCounter)) {
