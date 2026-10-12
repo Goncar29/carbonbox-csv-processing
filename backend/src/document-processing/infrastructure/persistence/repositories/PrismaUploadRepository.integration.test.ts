@@ -67,6 +67,25 @@ describeWithDatabase('PrismaUploadRepository (integration)', () => {
     expect(await prisma.upload.findUnique({ where: { id } })).toMatchObject({ status: 'COMPLETED', processedRows: ROWS });
   });
 
+  it('saveIfNotFinal never moves a COMPLETED upload back to PROCESSING from a stale copy', async () => {
+    const created = Upload.create({ id: Upload.nextIdentity(), fileName: 'data.csv', fileUrl: 'k/data.csv', userId: 'user-123' });
+    if (created.isLeft()) throw created.value;
+    await repository.save(created.value);
+    createdIds.push(created.value.id);
+    const stale = await repository.findById(created.value.id); // read while PENDING
+    const winner = await repository.findById(created.value.id);
+    winner?.startProcessing();
+    expect(winner ? await repository.saveIfNotFinal(winner) : false).toBe(true);
+    const { upload, records } = await completedByWorker(created.value.id);
+    await repository.saveProcessingResult(upload, records);
+
+    stale?.startProcessing();
+    const saved = stale ? await repository.saveIfNotFinal(stale) : true;
+
+    expect(saved).toBe(false);
+    expect(await prisma.upload.findUnique({ where: { id: created.value.id } })).toMatchObject({ status: 'COMPLETED' });
+  });
+
   it('saveIfStillProcessing never overwrites an upload another worker already completed', async () => {
     const { id } = await seedProcessingUpload();
     const winner = await completedByWorker(id);

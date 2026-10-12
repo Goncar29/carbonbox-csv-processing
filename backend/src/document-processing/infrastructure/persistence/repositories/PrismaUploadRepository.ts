@@ -48,6 +48,15 @@ export class PrismaUploadRepository implements IUploadRepository {
     );
   }
 
+  async saveIfNotFinal(upload: Upload): Promise<boolean> {
+    const { id, ...data } = PrismaUploadMapper.toPersistence(upload);
+    const { count } = await this.prisma.upload.updateMany({
+      where: { id, status: { in: ['PENDING', 'PROCESSING'] } },
+      data,
+    });
+    return count === 1;
+  }
+
   async saveIfStillProcessing(upload: Upload): Promise<boolean> {
     const { id, ...data } = PrismaUploadMapper.toPersistence(upload);
     // Conditional update: atomic in Postgres, so a late write never overwrites a final status.

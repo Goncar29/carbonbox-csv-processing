@@ -38,8 +38,11 @@ export class ProcessFileCommandHandler implements ICommandHandler<ProcessFileCom
     if (started.isLeft()) {
       return Either.left(started.value);
     }
-    // Persist PROCESSING right away so the frontend sees progress while polling.
-    await this.uploadRepository.save(upload);
+    // Persist PROCESSING right away so the frontend sees progress while polling. Conditional:
+    // if another delivery finished the upload since it was read, this copy is stale.
+    if (!(await this.uploadRepository.saveIfNotFinal(upload))) {
+      return Either.right({ uploadId: upload.id, outcome: 'skipped' });
+    }
 
     try {
       return await this.process(upload);

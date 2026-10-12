@@ -168,6 +168,25 @@ describe('ProcessFileCommandHandler', () => {
       expect((await uploads.findById(upload.id))?.status).toBe('COMPLETED');
     });
 
+    it('skips without moving a COMPLETED upload back to PROCESSING when it finished right after being read', async () => {
+      const upload = await seed(`${HEADER}\nWater,1,m3,2024-01-19\n`);
+      const otherWorker = new ProcessFileCommandHandler(uploads, storage, new CsvParserService());
+      const realFindById = uploads.findById.bind(uploads);
+      // This worker reads the upload as PENDING; the other delivery completes it before this one saves PROCESSING.
+      jest.spyOn(uploads, 'findById').mockImplementationOnce(async (id) => {
+        const stale = await realFindById(id);
+        await otherWorker.execute(command(upload.id));
+        return stale;
+      });
+      const resultSpy = jest.spyOn(uploads, 'saveProcessingResult');
+
+      const result = await handler.execute(command(upload.id));
+
+      expect(result.isRight() && result.value.outcome).toBe('skipped');
+      expect(resultSpy).toHaveBeenCalledTimes(1); // only the other worker wrote rows
+      expect((await uploads.findById(upload.id))?.status).toBe('COMPLETED');
+    });
+
     it('does not overwrite a COMPLETED upload with FAILED after a late last-attempt failure', async () => {
       const upload = await seed(`${HEADER}\nWater,1,m3,2024-01-19\n`);
       const otherWorker = new ProcessFileCommandHandler(uploads, storage, new CsvParserService());

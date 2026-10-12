@@ -28,6 +28,12 @@ export interface IUploadRepository {
    * Rows belong to the Upload aggregate, so they are written through its repository.
    */
   saveProcessingResult(upload: Upload, records: ActivityData[]): Promise<boolean>;
+  /**
+   * Saves the upload only if the stored one is not in a final status yet (PENDING or PROCESSING).
+   * Returns whether it was saved. Used when processing starts, so a delivery that read a stale
+   * copy never moves a finished upload back to PROCESSING.
+   */
+  saveIfNotFinal(upload: Upload): Promise<boolean>;
   /** Saves the upload only if the stored one is still PROCESSING. Returns whether it was saved. */
   saveIfStillProcessing(upload: Upload): Promise<boolean>;
   findById(id: string): Promise<Upload | null>;

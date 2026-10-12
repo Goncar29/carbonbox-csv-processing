@@ -114,7 +114,7 @@ SQS entrega cada mensaje **al menos una vez**, así que el worker tolera duplica
 
 Las filas y el estado `COMPLETED` se guardan en **una transacción** de Prisma (borra filas de intentos previos → inserta → actualiza el upload): un reintento nunca duplica filas.
 
-**Varios workers con el mismo mensaje** (SQS estándar puede entregarlo dos veces y en AWS el worker escala en ECS): la transacción toma un **bloqueo de fila** (`SELECT ... FOR UPDATE`) sobre el upload y solo escribe si sigue en `PROCESSING`. El segundo worker espera, ve el estado final y no escribe nada (`skipped`). El paso a `FAILED` usa un update condicional (`WHERE status = 'PROCESSING'`), así una falla tardía nunca pisa un `COMPLETED`. Cubierto por un test de integración contra Postgres real (`TEST_DATABASE_URL=... npm test PrismaUploadRepository`).
+**Varios workers con el mismo mensaje** (SQS estándar puede entregarlo dos veces y en AWS el worker escala en ECS): la transacción toma un **bloqueo de fila** (`SELECT ... FOR UPDATE`) sobre el upload y solo escribe si sigue en `PROCESSING`. El segundo worker espera, ve el estado final y no escribe nada (`skipped`). El paso a `FAILED` usa un update condicional (`WHERE status = 'PROCESSING'`), así una falla tardía nunca pisa un `COMPLETED`; y el paso inicial a `PROCESSING` solo se guarda si el upload sigue en `PENDING` o `PROCESSING`, así un worker con una copia vieja nunca hace retroceder un upload terminado. Cubierto por un test de integración contra Postgres real (`TEST_DATABASE_URL=... npm test PrismaUploadRepository`).
 
 Si SQS no responde, el worker reintenta con **backoff exponencial** (1 s, 2 s, 4 s… hasta 30 s).
 
@@ -186,7 +186,6 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 - **Publicación no atómica en `POST /uploads`:** si SQS falla después de guardar en la base, el upload queda en `PENDING` sin mensaje. **Con más tiempo:** patrón *Transactional Outbox* (guardar el mensaje en la misma transacción y publicarlo desde un proceso aparte).
 - **Sin `IHttpRequest` / `IHttpResponse`:** los controllers usan los tipos de Fastify directamente; la capa de presentación es, por definición, dependiente del framework.
 
-- **Primer guardado de `PROCESSING` sin condición de estado (A5):** en una carrera muy justa entre dos workers, un upload ya `COMPLETED` podría volver un instante a `PROCESSING`. No duplica filas (el bloqueo de fila lo impide) y el estado final es `COMPLETED`, pero el polling podría ver el estado retroceder un momento. **Con más tiempo:** update condicional `WHERE status IN ('PENDING','PROCESSING')`.
 - **Reporte de errores:** muestra hasta 100 errores y una línea final `...and N more errors`. Un `amount` que desborda a `Infinity` se reporta sin columna; años 0000–0099 se rechazan; un campo entre comillas que ocupa dos líneas se reporta en su última línea. Todos son casos fuera del dominio esperado.
 - **Sin autenticación:** `userId` fijo `"user-123"`, como pide el enunciado.
 - **Frontend sin tests automatizados:** verificado con `next build` + `tsc` y prueba manual del flujo completo; con más tiempo, tests de componentes con Testing Library y MSW.

@@ -77,6 +77,13 @@ export class InMemoryUploadRepository implements IUploadRepository {
     return true;
   }
 
+  async saveIfNotFinal(upload: Upload): Promise<boolean> {
+    const status = this.uploads.get(upload.id)?.status;
+    if (status !== 'PENDING' && status !== 'PROCESSING') return false;
+    this.uploads.set(upload.id, copyOf(upload));
+    return true;
+  }
+
   async saveIfStillProcessing(upload: Upload): Promise<boolean> {
     if (!this.isStillProcessing(upload.id)) return false;
     this.uploads.set(upload.id, copyOf(upload));
