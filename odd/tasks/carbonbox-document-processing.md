@@ -32,7 +32,7 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 | T1 | S1, S8 | Infra: docker-compose postgres+localstack, bucket/queue init, Prisma schema + migration (30m) | inline | done | (see Log L10) |
 | T2 | S3, S5 | Backend core: shared (Either, CQRS, AggregateRoot), domain, Prisma repos, Awilix, Jest (50m) | inline | done | (see Log L16) |
 | T3 | S4, S5 | API: Fastify routes, controllers, query/command handlers, error middleware, summary endpoint, S3 storage + SQS publisher (40m) | inline | done | (see Log L23) |
-| T4 | S2, S6 | Async: SQS consumer, CSV parser (TDD), ProcessFile handler, saveProcessingResult transaction, idempotent worker (50m) | inline | done (verify pending) | 2ec57db, 53f94a2 |
+| T4 | S2, S6 | Async: SQS consumer, CSV parser (TDD), ProcessFile handler, saveProcessingResult transaction, idempotent worker (50m) | inline | done (verified) | 2ec57db, 53f94a2, e0c53e6 |
 | T5 | S7 | Frontend: Next.js pages, React Query hooks, polling (60m) | inline | done | 476cc04 |
 | T6 | S8 | Docs: README, USO-DE-IA.md, AWS diagram, sample-data.csv, Dockerfile (20m) | inline | pending | |
 
@@ -72,4 +72,5 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 - **L32 (2026-10-12, user, verbatim):** "explicame mas sobre el mensaje va a la DLQ y el frontend hace polling infinito. Es exactamente lo que habíamos querido evitar en L21., significado y que hacen
 vamos a corregir B1 y B2 juntos"
 - **L33 (B1+B2 correction evidence):** RED: 3 new handler tests failed (last-attempt transaction failure, concurrent worker completed first, late failure after COMPLETED) once InMemoryUploadRepository stores copies. GREEN: port returns boolean from saveProcessingResult + new saveIfStillProcessing; handler reloads the upload in failAfterRetries and treats a refused write as skipped; Prisma uses an interactive transaction with SELECT ... FOR UPDATE + status check (timeout 30s) and a conditional updateMany for FAILED. 122 unit tests pass, typecheck OK, new integration test (2 tests, gated by TEST_DATABASE_URL) passes against document_processing_verify: two concurrent saves → [false,true], 500 rows (not 1000). Real E2E B1 (NUL byte CSV, main stack): PROCESSING → FAILED "Processing failed after 3 attempts..." at 115s, 0 rows. Gotcha: Git Bash curl -F sent a NUL-containing file as 0 bytes; uploading with Node fetch stored 64 bytes (tooling, not an app bug). Advisories A1-A4 left open.
-- **Next:** recheck limited to B1/B2 → T6 docs.
+- **L34 (recheck on e0c53e6):** B1 FIXED (NUL CSV → FAILED after 3 attempts, 0 rows, message in DLQ). B2 FIXED (2 workers, 3×20,000-row uploads, every message twice → 20,000 rows each, one completed + one skipped per upload). npm test 122 passed + 2 skipped, integration 2/2, typecheck OK. New advisory A5: the initial PROCESSING save has no status guard; a race can briefly flip COMPLETED back to PROCESSING (no duplicates, final state COMPLETED). Not reproduced; fix would be a conditional update where status in (PENDING, PROCESSING).
+- **Next:** T6 docs.
