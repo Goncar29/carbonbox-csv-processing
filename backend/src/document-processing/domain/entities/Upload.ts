@@ -144,13 +144,21 @@ export class Upload extends AggregateRoot<UploadProps> {
     return Either.right(undefined);
   }
 
-  complete(counters: RowCounters): Either<ConflictError | ValidationError, void> {
+  /**
+   * Finishes processing. Rows that failed validation do not fail the upload:
+   * it completes and keeps a report of the row errors in errorMessage.
+   */
+  complete(counters: RowCounters, rowErrorReport?: string): Either<ConflictError | ValidationError, void> {
     const { totalRows, processedRows, failedRows } = counters;
     if (![totalRows, processedRows, failedRows].every(isCounter)) {
       return Either.left(new ValidationError('Row counters must be non-negative integers'));
     }
     if (processedRows + failedRows !== totalRows) {
       return Either.left(new ValidationError('processedRows + failedRows must equal totalRows'));
+    }
+    const report = rowErrorReport?.trim() ?? '';
+    if (failedRows > 0 && report.length === 0) {
+      return Either.left(new ValidationError('A row error report is required when some rows failed'));
     }
 
     const transition = this.transitionTo(UploadStatus.completed());
@@ -160,6 +168,7 @@ export class Upload extends AggregateRoot<UploadProps> {
     this.props.totalRows = totalRows;
     this.props.processedRows = processedRows;
     this.props.failedRows = failedRows;
+    this.props.errorMessage = report.length > 0 ? report : null;
     return Either.right(undefined);
   }
 

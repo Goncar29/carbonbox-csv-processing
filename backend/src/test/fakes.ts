@@ -46,6 +46,14 @@ export class InMemoryUploadRepository implements IUploadRepository {
     return { items: sorted.slice((page - 1) * limit, page * limit), total: sorted.length };
   }
 
+  /** Mirrors the Prisma transaction: rows and upload change together. */
+  async saveProcessingResult(upload: Upload, records: ActivityData[]): Promise<void> {
+    this.activityData?.replaceForUpload(upload.id, records);
+    this.uploads.set(upload.id, upload);
+  }
+
+  constructor(private readonly activityData?: InMemoryActivityDataRepository) {}
+
   async countByStatus(): Promise<StatusCounts> {
     const counts = Object.fromEntries(UPLOAD_STATUSES.map((status) => [status, 0])) as StatusCounts;
     for (const upload of this.uploads.values()) {
@@ -56,7 +64,11 @@ export class InMemoryUploadRepository implements IUploadRepository {
 }
 
 export class InMemoryActivityDataRepository implements IActivityDataRepository {
-  readonly records: ActivityData[] = [];
+  records: ActivityData[] = [];
+
+  replaceForUpload(uploadId: string, records: ActivityData[]): void {
+    this.records = [...this.records.filter((record) => record.uploadId !== uploadId), ...records];
+  }
 
   async saveMany(records: ActivityData[]): Promise<void> {
     this.records.push(...records);

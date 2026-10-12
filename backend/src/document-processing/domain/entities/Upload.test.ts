@@ -149,13 +149,44 @@ describe('Upload aggregate', () => {
     it('moves PROCESSING to COMPLETED and stores the row counters', () => {
       const upload = processingUpload();
 
-      const result = upload.complete({ totalRows: 10, processedRows: 8, failedRows: 2 });
+      const result = upload.complete({ totalRows: 10, processedRows: 8, failedRows: 2 }, 'Row 2: bad\nRow 5: bad');
 
       expect(result.isRight()).toBe(true);
       expect(upload.status).toBe('COMPLETED');
       expect(upload.totalRows).toBe(10);
       expect(upload.processedRows).toBe(8);
       expect(upload.failedRows).toBe(2);
+    });
+
+    it('keeps the row error report when some rows failed', () => {
+      const upload = processingUpload();
+
+      const result = upload.complete(
+        { totalRows: 3, processedRows: 2, failedRows: 1 },
+        'Row 3, column amount: must be a positive number (value: "-5")',
+      );
+
+      expect(result.isRight()).toBe(true);
+      expect(upload.status).toBe('COMPLETED');
+      expect(upload.errorMessage).toBe('Row 3, column amount: must be a positive number (value: "-5")');
+    });
+
+    it('has no error message when every row was processed', () => {
+      const upload = processingUpload();
+
+      upload.complete({ totalRows: 1, processedRows: 1, failedRows: 0 });
+
+      expect(upload.errorMessage).toBeNull();
+    });
+
+    it('requires a row error report when some rows failed', () => {
+      const upload = processingUpload();
+
+      const result = upload.complete({ totalRows: 2, processedRows: 1, failedRows: 1 });
+
+      expect(result.isLeft()).toBe(true);
+      expect(result.value).toBeInstanceOf(ValidationError);
+      expect(upload.status).toBe('PROCESSING');
     });
 
     it('rejects completing an upload that never started processing', () => {

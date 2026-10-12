@@ -1,3 +1,4 @@
+import { ActivityData } from '../entities/ActivityData';
 import { Upload } from '../entities/Upload';
 import { UploadStatusValue } from '../value-objects/UploadStatus';
 
@@ -20,6 +21,11 @@ export interface PaginatedUploads {
  */
 export interface IUploadRepository {
   save(upload: Upload): Promise<void>;
+  /**
+   * Atomically replaces the upload's rows and saves its new state.
+   * Rows belong to the Upload aggregate, so they are written through its repository.
+   */
+  saveProcessingResult(upload: Upload, records: ActivityData[]): Promise<void>;
   findById(id: string): Promise<Upload | null>;
   findPaginated(pagination: Pagination): Promise<PaginatedUploads>;
   countByStatus(): Promise<StatusCounts>;

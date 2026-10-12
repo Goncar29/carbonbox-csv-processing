@@ -7,6 +7,8 @@ import {
   StatusCounts,
 } from '../../../domain/repositories/IUploadRepository';
 import { UPLOAD_STATUSES, UploadStatusValue } from '../../../domain/value-objects/UploadStatus';
+import { ActivityData } from '../../../domain/entities/ActivityData';
+import { PrismaActivityDataMapper } from '../mappers/PrismaActivityDataMapper';
 import { PrismaUploadMapper } from '../mappers/PrismaUploadMapper';
 
 export class PrismaUploadRepository implements IUploadRepository {
@@ -19,6 +21,17 @@ export class PrismaUploadRepository implements IUploadRepository {
       create: data,
       update: data,
     });
+  }
+
+  async saveProcessingResult(upload: Upload, records: ActivityData[]): Promise<void> {
+    const data = PrismaUploadMapper.toPersistence(upload);
+    // All or nothing: a crash can never leave rows saved with the upload still PROCESSING.
+    await this.prisma.$transaction([
+      // Clears rows from a previous attempt so a retry never duplicates them.
+      this.prisma.activityData.deleteMany({ where: { uploadId: upload.id } }),
+      this.prisma.activityData.createMany({ data: records.map(PrismaActivityDataMapper.toPersistence) }),
+      this.prisma.upload.update({ where: { id: data.id }, data }),
+    ]);
   }
 
   async findById(id: string): Promise<Upload | null> {

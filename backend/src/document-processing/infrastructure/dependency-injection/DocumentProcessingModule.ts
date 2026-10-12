@@ -2,6 +2,12 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { SQSClient } from '@aws-sdk/client-sqs';
 import { PrismaClient } from '@prisma/client';
 import { AwilixContainer, InjectionMode, asClass, asValue, createContainer } from 'awilix';
+import pino, { Logger } from 'pino';
+import { IMessageConsumer } from '../../../shared/application/messaging/IMessageConsumer';
+import { FileProcessingWorker } from '../../../workers/FileProcessingWorker';
+import { ProcessFileCommandHandler } from '../../application/commands/handlers/ProcessFileCommandHandler';
+import { CsvParserService } from '../../application/services/CsvParserService';
+import { SqsMessageConsumer } from '../messaging/SqsMessageConsumer';
 import { IConvictProps } from '../../../config/IConvictProps';
 import { IMessagePublisher } from '../../../shared/application/messaging/IMessagePublisher';
 import { IFileStorage } from '../../../shared/application/storage/IFileStorage';
@@ -30,17 +36,23 @@ export interface DocumentProcessingCradle {
   defaultUserId: string;
   s3BucketName: string;
   sqsQueueUrl: string;
+  pollWaitSeconds: number;
+  maxReceiveCount: number;
   // External clients
   prisma: PrismaClient;
   s3Client: S3Client;
   sqsClient: SQSClient;
+  logger: Logger;
   // Ports -> adapters
   uploadRepository: IUploadRepository;
   activityDataRepository: IActivityDataRepository;
   fileStorage: IFileStorage;
   messagePublisher: IMessagePublisher<FileUploadedMessage>;
+  messageConsumer: IMessageConsumer;
   // Application
+  csvParserService: CsvParserService;
   createUploadCommandHandler: CreateUploadCommandHandler;
+  processFileCommandHandler: ProcessFileCommandHandler;
   getUploadByIdQueryHandler: GetUploadByIdQueryHandler;
   listUploadsQueryHandler: ListUploadsQueryHandler;
   getUploadResultsQueryHandler: GetUploadResultsQueryHandler;
@@ -51,6 +63,8 @@ export interface DocumentProcessingCradle {
   listUploadsController: ListUploadsController;
   getUploadResultsController: GetUploadResultsController;
   getUploadsSummaryController: GetUploadsSummaryController;
+  // Worker
+  fileProcessingWorker: FileProcessingWorker;
 }
 
 /**
@@ -71,17 +85,23 @@ export const createDocumentProcessingContainer = (
     defaultUserId: asValue(config.userId),
     s3BucketName: asValue(config.aws.s3BucketName),
     sqsQueueUrl: asValue(config.aws.sqsQueueUrl),
+    pollWaitSeconds: asValue(config.worker.pollWaitSeconds),
+    maxReceiveCount: asValue(config.worker.maxReceiveCount),
 
     prisma: asValue(prisma),
     s3Client: asValue(new S3Client(awsClientConfig(config))),
     sqsClient: asValue(new SQSClient(awsClientConfig(config))),
+    logger: asValue(pino({ level: config.env === 'test' ? 'silent' : 'info' })),
 
     uploadRepository: asClass(PrismaUploadRepository).singleton(),
     activityDataRepository: asClass(PrismaActivityDataRepository).singleton(),
     fileStorage: asClass(S3FileStorage).singleton(),
     messagePublisher: asClass(SqsMessagePublisher).singleton(),
+    messageConsumer: asClass(SqsMessageConsumer).singleton(),
 
+    csvParserService: asClass(CsvParserService).singleton(),
     createUploadCommandHandler: asClass(CreateUploadCommandHandler).singleton(),
+    processFileCommandHandler: asClass(ProcessFileCommandHandler).singleton(),
     getUploadByIdQueryHandler: asClass(GetUploadByIdQueryHandler).singleton(),
     listUploadsQueryHandler: asClass(ListUploadsQueryHandler).singleton(),
     getUploadResultsQueryHandler: asClass(GetUploadResultsQueryHandler).singleton(),
@@ -92,6 +112,8 @@ export const createDocumentProcessingContainer = (
     listUploadsController: asClass(ListUploadsController).singleton(),
     getUploadResultsController: asClass(GetUploadResultsController).singleton(),
     getUploadsSummaryController: asClass(GetUploadsSummaryController).singleton(),
+
+    fileProcessingWorker: asClass(FileProcessingWorker).singleton(),
   });
 
   return container;
