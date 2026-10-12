@@ -138,7 +138,7 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 | `/uploads/new` | Drag & drop o selector, solo `.csv`, barra de progreso de subida y redirección al detalle |
 | `/uploads/[id]` | Datos del upload, barra mientras está `PENDING`/`PROCESSING`, polling cada 3 s, tabla de resultados al completar y lista de errores por fila/columna |
 
-**Infraestructura en AWS:** diagrama y explicación en [`docs/arquitectura-aws.md`](docs/arquitectura-aws.md) (VPC con subnets públicas/privadas, ALB, ECS Fargate API + Worker, RDS Multi-AZ, S3, SQS + DLQ, CloudWatch, Secrets Manager).
+**Infraestructura en AWS:** diagrama en [`docs/arquitectura-aws.png`](docs/arquitectura-aws.png) (fuente Mermaid y explicación en [`docs/arquitectura-aws.md`](docs/arquitectura-aws.md)) (VPC con subnets públicas/privadas, ALB, ECS Fargate API + Worker, RDS Multi-AZ, S3, SQS + DLQ, CloudWatch, Secrets Manager).
 
 ### Patrones
 
@@ -175,7 +175,7 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 | Barra de progreso indeterminada | El worker guarda los contadores al final (en la transacción), así que no hay un porcentaje real que mostrar durante `PROCESSING`. | Para progreso real habría que persistir avances parciales. |
 | Tailwind CSS 4 sin `tailwind.config.ts` | Tailwind 4 se configura desde CSS (`@import 'tailwindcss'`) y se integra con `@tailwindcss/postcss`; el archivo de configuración que lista el enunciado ya no es necesario. | Desvío de la estructura sugerida, por versión. |
 | Next.js 16 (App Router) | Cumple "Next.js 14+"; en 15+ `params` y `searchParams` son `Promise` y se esperan con `await`. | — |
-| Diagrama de AWS en Mermaid (`docs/arquitectura-aws.md`) en lugar de PNG | El enunciado acepta Mermaid; se versiona como texto y GitHub lo renderiza. | Hay que verlo en un visor de Markdown con Mermaid. |
+| Diagrama de AWS en Mermaid, exportado a PNG | `docs/arquitectura-aws.png` es lo que pide la estructura del enunciado; la fuente Mermaid (`docs/arquitectura-aws.md`) se versiona como texto y se regenera con `npx @mermaid-js/mermaid-cli`. | Hay que regenerar el PNG si cambia la fuente. |
 | Una imagen Docker para API y worker | Mismo código y dependencias; en ECS cambia solo el comando. Multi-stage: la imagen final no lleva TypeScript ni el CLI de Prisma. | Las migraciones van como task aparte del pipeline. |
 | `GET /uploads/summary` | El dashboard necesita conteos por estado y ningún endpoint del enunciado los provee. Decisión del candidato; no agrega campos a la base. | Endpoint adicional al enunciado. |
 
@@ -207,7 +207,7 @@ Con todo levantado (sección 3): **http://localhost:3000**.
 5. **Lista y dashboard:** `/uploads` muestra todos los uploads paginados; `/` muestra los totales por estado.
 6. **Asincronía y polling:** detener el worker (`Ctrl+C`) y subir un archivo: queda `PENDING` y en la pestaña *Network* (filtro `uploads`) aparece `GET /uploads/:id` **cada 3 s**. Volver a iniciar el worker: el upload pasa a `COMPLETED` sin recargar, se piden los resultados y **las consultas se detienen**. El polling se pausa si la pestaña no está visible (comportamiento por defecto de React Query) y se reanuda al volver.
 
-Tests del backend: `npm test` (122 unitarios y de API). Test de integración del bloqueo de fila contra una base **descartable** ya migrada:
+Tests del backend: `npm test` (123 unitarios y de API). Test de integración del bloqueo de fila contra una base **descartable** ya migrada:
 
 ```bash
 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/<base_de_prueba> npm test -- PrismaUploadRepository

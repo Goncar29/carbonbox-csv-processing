@@ -10,7 +10,7 @@ flowchart TB
         subgraph vpc[VPC 10.0.0.0/16 — 2 zonas de disponibilidad]
             subgraph public[Subnets públicas AZ-a / AZ-b]
                 alb[Application Load Balancer<br/>HTTPS 443 · ACM<br/>SG-ALB: 443 desde Internet]
-                nat[NAT Gateway]
+                nat[NAT Gateway<br/>salida de las tasks a Internet]
             end
 
             subgraph private_app[Subnets privadas de aplicación AZ-a / AZ-b]
@@ -32,7 +32,6 @@ flowchart TB
         dlq[[SQS file-processing-dlq<br/>maxReceiveCount 3]]
         secrets[Secrets Manager<br/>credenciales de RDS]
         cw[CloudWatch<br/>Logs · métricas · alarmas]
-        ecr[ECR<br/>imagen carbonbox-backend]
     end
 
     frontend[Frontend Next.js<br/>Vercel o S3 + CloudFront]
@@ -55,8 +54,6 @@ flowchart TB
     sqs -. ApproximateNumberOfMessagesVisible .-> cw
     cw -. escala tasks .-> worker
     dlq -. alarma si > 0 .-> cw
-    ecs -. pull .-> ecr
-    private_app -. salida a Internet .-> nat
 ```
 
 ## Cómo se conectan los componentes
@@ -75,4 +72,4 @@ flowchart TB
 | **Secrets Manager** | Credenciales de RDS inyectadas como variables de entorno en la task definition | Sin secretos en el código ni en la imagen; rotación automática. |
 | **IAM task roles** | API: `s3:PutObject`, `sqs:SendMessage`. Worker: `s3:GetObject`, `sqs:ReceiveMessage/DeleteMessage` | Cada servicio solo puede hacer lo que necesita. Reemplaza las claves `test/test` de LocalStack. |
 | **CloudWatch** | Logs JSON de pino, métricas de ECS/RDS/SQS, alarmas (DLQ > 0, CPU, errores 5xx del ALB) | Un mensaje en la DLQ es un upload que alguien tiene que mirar. |
-| **ECR** | Registro de la imagen construida con `backend/Dockerfile` | Una imagen, dos servicios. Las migraciones corren como task puntual (`prisma migrate deploy`) antes de desplegar. |
+| **ECR** (fuera del diagrama) | Registro de la imagen construida con `backend/Dockerfile` | Una imagen, dos servicios. Las migraciones corren como task puntual (`prisma migrate deploy`) antes de desplegar. |

@@ -54,7 +54,7 @@
 ### Documentación y despliegue (T6)
 - [x] `sample-data.csv` (60 filas) y `docs/sample-data-with-errors.csv`
 - [x] `backend/Dockerfile` multi-stage (una imagen para API y worker), verificado con `docker build` y `docker run`
-- [x] Diagrama de AWS en Mermaid (`docs/arquitectura-aws.md`)
+- [x] Diagrama de AWS en Mermaid (`docs/arquitectura-aws.md`), exportado a `docs/arquitectura-aws.png`
 - [x] README final (sección "Cómo probarlo")
 
 ## ¿Qué Modifiqué o Corregí?
@@ -108,7 +108,7 @@
 14. **Dos bugs de concurrencia que los tests no veían (hallados por el verificador independiente):**
     - **B1:** si la transacción fallaba en el último intento, el upload quedaba en `PROCESSING` para siempre (el frontend hacía polling infinito). Causa: el agregado ya estaba en `COMPLETED` en memoria y `COMPLETED → FAILED` no es válido. El repositorio en memoria de los tests compartía el mismo objeto y lo escondía. Corrección: el fake guarda copias y el worker recarga el upload antes de marcarlo `FAILED`.
     - **B2:** dos workers con el mismo mensaje duplicaban las filas. Corrección: bloqueo de fila (`SELECT ... FOR UPDATE`) y escrituras condicionadas al estado. Probado con un test de integración contra PostgreSQL real.
-    - Decidí corregir ambos (aunque B2 solo aparece con varios workers) porque el diagrama de AWS escala el worker en ECS. Una observación menor (A5) quedó documentada como limitación.
+    - Decidí corregir ambos (aunque B2 solo aparece con varios workers) porque el diagrama de AWS escala el worker en ECS. Una observación menor (A5: un worker con una copia vieja podía hacer retroceder un instante un upload terminado a `PROCESSING`) se corrigió después con el mismo enfoque: un update condicional, con su test escrito antes.
 
 15. **Comando de Docker incompleto:** la primera versión del comando `docker run` del README no funcionaba (la API escuchaba solo en localhost dentro del contenedor). Se detectó al probarlo y se agregó `HOST=0.0.0.0`.
 
