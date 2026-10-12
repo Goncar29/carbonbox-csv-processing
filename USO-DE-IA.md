@@ -33,8 +33,14 @@
 - [x] Dominio: `Upload`, `ActivityData`, `UploadStatus`, `FileName` (tests escritos primero, TDD)
 - [x] Interfaces de repositorio, repositorios Prisma, mappers y contenedor Awilix
 
-### Backend — API y procesamiento
-- [ ] _(etapas T3–T4)_
+### Backend — API (T3)
+- [x] Configuración con convict
+- [x] Commands, queries y handlers (CQRS), controllers, rutas y manejador de errores centralizado
+- [x] Adaptadores de S3 y SQS, endpoint de resumen para el dashboard
+- [x] Tests de API con `fastify.inject` (escritos antes de la implementación)
+
+### Backend — procesamiento asíncrono
+- [ ] _(etapa T4)_
 
 ### Frontend
 - [ ] _(etapa T5)_
@@ -66,6 +72,17 @@
 
 7. **Verificación más allá de los tipos:**
    - Además de los 49 tests unitarios, los repositorios se probaron contra PostgreSQL real con un script temporal (crear, transicionar estados, guardar filas, paginar y limpiar).
+
+8. **Ubicación de las interfaces de mensajería:**
+   - La estructura sugerida pone `IMessagePublisher` en `shared/infrastructure`. Al revisarlo, la capa de aplicación quedaba dependiendo de infraestructura, lo que contradice la regla de dependencias del propio enunciado. Se movieron a `shared/application` como puertos.
+
+9. **Tests que fallaban por una dependencia ESM (error real durante la etapa T3):**
+   - Los 16 tests de API fallaron con `Must use import to load ES Module: .../cookie/dist/index.js`.
+   - No era un error de nuestro código: `fastify.inject` usa `light-my-request`, que hace `require()` de `cookie`, que ahora se publica solo como ESM.
+   - Se verificó en la documentación oficial de Jest que en Node ≥ 24.9 se soporta `require(esm)` habilitando `--experimental-vm-modules`, y se dejó en el script `npm test` de forma compatible con Windows.
+
+10. **Errores de negocio vs. errores inesperados en HTTP:**
+    - Un único manejador traduce `ValidationError` → 400, `NotFoundError` → 404, `ConflictError` → 409. Los errores inesperados devuelven un 500 genérico para no exponer detalles internos (por ejemplo, IPs de la base de datos) y se registran en el log.
 
 ## ¿Qué Aprendí?
 
@@ -102,7 +119,7 @@ _Sección para completar con mis propias palabras al cierre de cada etapa._
 | T0 — Repositorio y plan | 10 min | ~10 min |
 | T1 — Infraestructura | 30 min | ~20 min |
 | T2 — Backend core | 50 min | ~35 min |
-| T3 — API | 40 min | |
+| T3 — API | 40 min | ~40 min |
 | T4 — Procesamiento asíncrono | 50 min | |
 | T5 — Frontend | 60 min | |
 | T6 — Documentación final | 20 min | |

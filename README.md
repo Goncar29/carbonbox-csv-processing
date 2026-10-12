@@ -1,6 +1,6 @@
 # CarbonBox — Procesamiento Asíncrono de Documentos CSV
 
-> Estado: **en construcción** (etapa T2 de 6 completada). Este README se actualiza al cerrar cada etapa.
+> Estado: **en construcción** (etapa T3 de 6 completada). Este README se actualiza al cerrar cada etapa.
 > Seguimiento detallado: [`odd/tasks/carbonbox-document-processing.md`](odd/tasks/carbonbox-document-processing.md).
 
 ## 1. Descripción
@@ -33,8 +33,8 @@ cd backend
 cp .env.example .env
 npm install
 npx prisma migrate dev
-npm test             # tests unitarios del dominio
-# npm run dev        (disponible desde la etapa T3)
+npm test             # tests unitarios y de API
+npm run dev          # API en http://localhost:3001
 
 # 3. Worker (otra terminal) — disponible desde la etapa T4
 # npm run worker
@@ -51,6 +51,19 @@ npm test             # tests unitarios del dominio
 | LocalStack | `http://localhost:4566` | Bucket `carbonbox-uploads`, colas `file-processing-queue` y `file-processing-dlq` |
 
 Los recursos de AWS se crean automáticamente al iniciar LocalStack mediante `infra/localstack/init/ready.d/init-aws.sh`.
+
+### API REST
+
+| Método | Endpoint | Respuesta |
+|--------|----------|-----------|
+| POST | `/api/v1/uploads` (form-data, campo `file`) | `202` `{ id, status, fileName, createdAt }` |
+| GET | `/api/v1/uploads/:id` | `{ id, status, fileName, totalRows, processedRows, failedRows, errorMessage, createdAt, updatedAt }` |
+| GET | `/api/v1/uploads?page=1&limit=10` | `{ data: [...], total, page, limit }` |
+| GET | `/api/v1/uploads/:id/results` | `{ data: [{ category, amount, unit, date }] }` |
+| GET | `/api/v1/uploads/summary` | `{ total, pending, processing, completed, failed }` (agregado para el dashboard) |
+| GET | `/health` | `{ status: "ok" }` |
+
+Errores con formato uniforme: `{ statusCode, error, message }` — `400` validación, `404` no encontrado, `409` transición de estado inválida, `413` archivo mayor a 10 MB, `500` error inesperado (mensaje genérico; el detalle solo va al log).
 
 ## 4. Arquitectura
 
@@ -84,11 +97,20 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 | IDs sin `@default` en Prisma | Los IDs se generan en la capa de dominio (el agregado nace con identidad). | — |
 | TypeScript fijado en `5.9.3` | `typescript@latest` es la 7.x (port a Go) y `ts-jest` declara `"typescript": ">=4.3 <7"`. | No se usa el compilador nativo más rápido. |
 | Sin `ICommandBus` | Con 5 handlers, Awilix inyecta cada handler directamente en su controller; un bus agregaría indirección sin beneficio real. | Si crecieran los handlers o se necesitara middleware de commands (logging, transacciones), se agregaría un bus. |
-| Jest + ts-jest | Tests del dominio escritos antes de la implementación (TDD). | — |
+| Jest + ts-jest | Tests escritos antes de la implementación (TDD). Los de API usan `fastify.inject` con repositorios en memoria: prueban HTTP real sin base de datos. | No reemplazan una prueba contra infraestructura real (hecha manualmente con LocalStack). |
+| `npm test` con `--experimental-vm-modules` | `fastify.inject` depende de `cookie`, que ahora es solo ESM; Jest necesita ese flag para cargar ESM desde CommonJS (Node ≥ 24.9). Se usa `node ... jest.js` en vez de `NODE_OPTIONS=` para que funcione también en Windows. | Flag "experimental" de Node. |
+| Interfaces `IMessagePublisher` / `IFileStorage` en `shared/application` | El enunciado las ubica en `shared/infrastructure`, pero las usa la capa de aplicación: si `application` importara de `infrastructure`, la dependencia apuntaría hacia afuera y rompería la regla de Clean Architecture. Son **puertos**; SQS y S3 son **adaptadores**. | Desvío consciente de la estructura sugerida. |
+| `POST /uploads` responde `202 Accepted` | El upload queda registrado, pero el procesamiento ocurre después, de forma asíncrona. | — |
+| Orden en `CreateUpload`: S3 → base de datos → SQS | El registro debe existir antes de que el worker reciba el mensaje. | Si SQS falla después de guardar, el upload queda en `PENDING` (ver limitaciones). |
+| Configuración con convict | Esquema tipado con validación al arrancar; cada valor se sobrescribe por variable de entorno. Las variables se cargan con `--env-file` nativo de Node (sin `dotenv`). | — |
+| `GET /uploads/summary` | El dashboard necesita conteos por estado y ningún endpoint del enunciado los provee. Decisión del candidato; no agrega campos a la base. | Endpoint adicional al enunciado. |
 
 ## 6. Limitaciones conocidas
 
 - **`.env.example` con los mismos valores que `.env`:** decisión consciente para esta prueba, para que quien evalúe pueda levantar el proyecto copiando el archivo. Las credenciales son las de desarrollo local (LocalStack acepta `test`/`test`). En un entorno real, `.env.example` solo tendría claves con valores ficticios y los secretos vivirían en AWS Secrets Manager.
+
+- **Publicación no atómica en `POST /uploads`:** si SQS falla después de guardar en la base, el upload queda en `PENDING` sin mensaje. **Con más tiempo:** patrón *Transactional Outbox* (guardar el mensaje en la misma transacción y publicarlo desde un proceso aparte).
+- **Sin `IHttpRequest` / `IHttpResponse`:** los controllers usan los tipos de Fastify directamente; la capa de presentación es, por definición, dependiente del framework.
 
 _Se completa al cierre de cada etapa._
 

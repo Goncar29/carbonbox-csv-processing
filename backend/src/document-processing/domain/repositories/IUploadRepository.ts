@@ -1,4 +1,7 @@
 import { Upload } from '../entities/Upload';
+import { UploadStatusValue } from '../value-objects/UploadStatus';
+
+export type StatusCounts = Record<UploadStatusValue, number>;
 
 export interface Pagination {
   page: number;
@@ -19,4 +22,5 @@ export interface IUploadRepository {
   save(upload: Upload): Promise<void>;
   findById(id: string): Promise<Upload | null>;
   findPaginated(pagination: Pagination): Promise<PaginatedUploads>;
+  countByStatus(): Promise<StatusCounts>;
 }

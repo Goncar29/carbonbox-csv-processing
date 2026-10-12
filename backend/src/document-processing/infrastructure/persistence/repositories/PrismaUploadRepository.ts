@@ -4,7 +4,9 @@ import {
   IUploadRepository,
   PaginatedUploads,
   Pagination,
+  StatusCounts,
 } from '../../../domain/repositories/IUploadRepository';
+import { UPLOAD_STATUSES, UploadStatusValue } from '../../../domain/value-objects/UploadStatus';
 import { PrismaUploadMapper } from '../mappers/PrismaUploadMapper';
 
 export class PrismaUploadRepository implements IUploadRepository {
@@ -34,5 +36,16 @@ export class PrismaUploadRepository implements IUploadRepository {
       this.prisma.upload.count(),
     ]);
     return { items: rows.map(PrismaUploadMapper.toDomain), total };
+  }
+
+  async countByStatus(): Promise<StatusCounts> {
+    const groups = await this.prisma.upload.groupBy({ by: ['status'], _count: { _all: true } });
+    const counts = Object.fromEntries(UPLOAD_STATUSES.map((status) => [status, 0])) as StatusCounts;
+    for (const group of groups) {
+      if (group.status in counts) {
+        counts[group.status as UploadStatusValue] = group._count._all;
+      }
+    }
+    return counts;
   }
 }
