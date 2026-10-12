@@ -110,9 +110,17 @@
     - **B2:** dos workers con el mismo mensaje duplicaban las filas. Corrección: bloqueo de fila (`SELECT ... FOR UPDATE`) y escrituras condicionadas al estado. Probado con un test de integración contra PostgreSQL real.
     - Decidí corregir ambos (aunque B2 solo aparece con varios workers) porque el diagrama de AWS escala el worker en ECS. Una observación menor (A5: un worker con una copia vieja podía hacer retroceder un instante un upload terminado a `PROCESSING`) se corrigió después con el mismo enfoque: un update condicional, con su test escrito antes.
 
-15. **Comando de Docker incompleto:** la primera versión del comando `docker run` del README no funcionaba (la API escuchaba solo en localhost dentro del contenedor). Se detectó al probarlo y se agregó `HOST=0.0.0.0`.
+15. **Diagnóstico equivocado de la IA (Docker):** el primer `docker run` de prueba no respondió y la IA concluyó que faltaba `HOST=0.0.0.0`, y lo agregó al README. La auditoría final mostró que no era necesario (el valor por defecto ya es `0.0.0.0`; el primer intento falló por tiempo de arranque): se volvió a probar sin esa variable y se corrigió la documentación.
 
 16. **Estimación de tiempo equivocada:** la IA había anotado "~3 h usadas" en su memoria; al medirlo con los timestamps de git eran ~2 h. La tabla de tiempos se recalculó con git.
+
+17. **Auditoría final "como si fuera a producción" (3 revisores independientes):**
+    - **Crítico:** la regla `uploads/` de `.gitignore` también ignoraba `frontend/src/app/uploads/`, así que **3 de las 4 páginas nunca se habían subido** al repositorio. Todas las pruebas anteriores corrieron sobre la carpeta de trabajo; solo clonar el repositorio desde cero lo mostró. Se corrigió la regla y se agregaron las páginas.
+    - `init-aws.sh` sin permiso de ejecución: en macOS/Linux LocalStack no creaba el bucket ni las colas (en Windows funcionaba).
+    - Un CSV de Excel en Latin-1 se guardaba con caracteres corruptos sin aviso: ahora se rechaza pidiendo UTF-8.
+    - Una comilla suelta en un valor hacía fallar todo el archivo, y un carácter NUL gastaba los 3 reintentos. Al corregir el NUL apareció un segundo caso que los tests en memoria no veían: el valor también se copiaba al reporte de errores, que PostgreSQL tampoco acepta. Se detectó probando contra la infraestructura real.
+    - El detalle de un upload inexistente hacía polling infinito; `npm install` con npm 11 no generaba el cliente de Prisma; y se endurecieron entradas de la API (nombre de archivo con caracteres de control, `page` gigante, `Content-Type` del cliente).
+    - Lo que no entraba en el tiempo quedó documentado en "Limitaciones conocidas" del README.
 
 ## ¿Qué Aprendí?
 
@@ -211,6 +219,7 @@ Ordenado por etapa. Escrito con mis palabras mientras trabajaba y leía document
 | T4 — Procesamiento asíncrono + corrección de B1/B2 | 50 min | ~32 min (12:41 → 12:59 y 13:13 → 13:27) |
 | T5 — Frontend | 60 min | ~14 min (12:59 → 13:13, en paralelo con la verificación de T4) |
 | T6 — Documentación final | 20 min | ~20 min (13:27 → ~13:47) |
-| **Total** | **4 h** | **~2 h 20 min** |
+| Ajustes finales (A5, diagrama PNG, aprendizajes) y auditoría con correcciones | — | ~60 min (13:47 → ~14:45) |
+| **Total** | **4 h** | **~3 h 20 min** |
 
 Medido con los timestamps de los commits (`git log`). Incluye el tiempo de una sesión de IA que se cerró y hubo que retomar.

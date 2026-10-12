@@ -19,7 +19,7 @@ Frontend ◄──polling cada 3s── API
 
 | Herramienta | Versión usada |
 |-------------|---------------|
-| Node.js | 24.x |
+| Node.js | 24.9 o superior (`npm test` usa `--experimental-vm-modules` para cargar módulos ESM) |
 | Docker Desktop (con Docker Compose v2) | 29.x |
 
 ## 3. Instalación y ejecución
@@ -30,8 +30,8 @@ docker compose up -d --wait
 
 # 2. Backend
 cd backend
-cp .env.example .env
-npm install
+cp .env.example .env   # en cmd.exe de Windows: copy .env.example .env
+npm install          # el script postinstall genera el cliente de Prisma
 npx prisma migrate dev
 npm test             # tests unitarios y de API
 npm run dev          # API en http://localhost:3001
@@ -54,9 +54,9 @@ El frontend apunta por defecto a `http://localhost:3001/api/v1`; para otra URL, 
 ```bash
 cd backend
 docker build -t carbonbox-backend .
-# API (comando por defecto) y worker (comando sobrescrito). HOST=0.0.0.0 para aceptar conexiones desde fuera del contenedor;
+# API (comando por defecto) y worker (comando sobrescrito).
 # host.docker.internal reemplaza a localhost para llegar a Postgres y LocalStack del host.
-docker run --env-file .env -e HOST=0.0.0.0 -e AWS_ENDPOINT=http://host.docker.internal:4566 -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5433/document_processing -p 3001:3001 carbonbox-backend
+docker run --env-file .env -e AWS_ENDPOINT=http://host.docker.internal:4566 -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5433/document_processing -p 3001:3001 carbonbox-backend
 docker run --env-file .env -e AWS_ENDPOINT=http://host.docker.internal:4566 -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5433/document_processing carbonbox-backend node dist/workers/index.js
 ```
 
@@ -84,12 +84,12 @@ Errores con formato uniforme: `{ statusCode, error, message }` — `400` validac
 
 ### Procesamiento del CSV
 
-Formato obligatorio: `category,amount,unit,date` (se aceptan columnas en cualquier orden y mayúsculas; BOM, `\r\n`, comillas y espacios se manejan).
+Formato obligatorio: `category,amount,unit,date`, codificado en **UTF-8** (se aceptan columnas en cualquier orden y mayúsculas; BOM, `\r\n`, comillas y espacios se manejan; una comilla suelta dentro de un valor, como `Caño 2"`, se guarda tal cual).
 
 | Problema | Resultado del upload |
 |----------|----------------------|
-| Archivo vacío, sin filas de datos, columna faltante/duplicada/desconocida o CSV mal formado | `FAILED`, con el motivo en `errorMessage` |
-| Filas puntuales inválidas (campo vacío, `amount` no positivo o no numérico, fecha inexistente o fuera de `YYYY-MM-DD`) | `COMPLETED`: se guardan las filas válidas y `errorMessage` lista cada error con fila y columna |
+| Archivo vacío, sin filas de datos, columna faltante/duplicada/desconocida, CSV mal formado (por ejemplo, comillas sin cerrar) o archivo que no es UTF-8 (el "CSV" por defecto de Excel en Windows es Latin-1: se rechaza pidiendo *Save as > CSV UTF-8* en vez de guardar texto corrupto) | `FAILED`, con el motivo en `errorMessage` |
+| Filas puntuales inválidas (campo vacío, `amount` no positivo o no numérico, fecha inexistente o fuera de `YYYY-MM-DD`, carácter NUL que PostgreSQL no puede guardar) | `COMPLETED`: se guardan las filas válidas y `errorMessage` lista cada error con fila y columna |
 
 Ejemplo de `errorMessage` de un upload `COMPLETED` con filas inválidas (fila = línea del archivo, encabezado = línea 1; máximo 100 líneas):
 
@@ -185,11 +185,20 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 
 - **Publicación no atómica en `POST /uploads`:** si SQS falla después de guardar en la base, el upload queda en `PENDING` sin mensaje. **Con más tiempo:** patrón *Transactional Outbox* (guardar el mensaje en la misma transacción y publicarlo desde un proceso aparte).
 - **Sin `IHttpRequest` / `IHttpResponse`:** los controllers usan los tipos de Fastify directamente; la capa de presentación es, por definición, dependiente del framework.
+- **`try/catch` en `ProcessFileCommandHandler`:** el enunciado prohíbe `try/catch` en controllers (se cumple). En el handler del worker hay uno solo, a propósito: en el **último** intento de SQS convierte un fallo técnico en el estado `FAILED` (para que el polling termine) y vuelve a lanzar el error.
+- **Sin `FileProcessingService`:** su rol lo cubren `ProcessFileCommandHandler` (coordina I/O: S3, repositorio, reintentos) y `CsvParserService` (regla de negocio pura, sin I/O, testeable con datos de entrada y salida).
+- **Lista y dashboard sin filtro por `userId`:** con un único usuario fijo es equivalente; con autenticación, `findPaginated` y `countByStatus` filtrarían por el usuario del token.
 
 - **Reporte de errores:** muestra hasta 100 errores y una línea final `...and N more errors`. Un `amount` que desborda a `Infinity` se reporta sin columna; años 0000–0099 se rechazan; un campo entre comillas que ocupa dos líneas se reporta en su última línea. Todos son casos fuera del dominio esperado.
 - **Sin autenticación:** `userId` fijo `"user-123"`, como pide el enunciado.
 - **Frontend sin tests automatizados:** verificado con `next build` + `tsc` y prueba manual del flujo completo; con más tiempo, tests de componentes con Testing Library y MSW.
-- **Polling en lugar de push:** suficiente para la prueba; a escala, SSE o WebSocket.
+- **Polling en lugar de push:** suficiente para la prueba; a escala, SSE o WebSocket. La lista y el dashboard no se refrescan solos (solo el detalle hace polling); se actualizan al volver a la página o a la pestaña.
+
+**Escala de producción (detectado en la auditoría final, no corregido por tiempo):**
+- **Worker muerto en el último intento:** si el proceso se cae (falta de memoria, `SIGKILL` en un deploy) durante el tercer intento, SQS mueve el mensaje a la DLQ sin que nadie marque el upload como `FAILED`: queda en `PROCESSING`. **Con más tiempo:** extender el visibility timeout mientras se procesa (*heartbeat* con `ChangeMessageVisibility`) y un consumidor de la DLQ que marque `FAILED` esos uploads.
+- **Archivos muy grandes:** el archivo completo se carga en memoria (límite 10 MB, ~330 mil filas) y las filas se insertan en una sola transacción con timeout de 30 s; cerca del límite podría superarlo. **Con más tiempo:** procesar por streaming e insertar por lotes.
+- **`GET /uploads/:id/results` sin paginación:** devuelve todas las filas de una vez.
+- **Sin rate limiting** y `/health` no verifica la conexión a la base.
 
 ## 7. Cómo probarlo
 
@@ -207,7 +216,7 @@ Con todo levantado (sección 3): **http://localhost:3000**.
 5. **Lista y dashboard:** `/uploads` muestra todos los uploads paginados; `/` muestra los totales por estado.
 6. **Asincronía y polling:** detener el worker (`Ctrl+C`) y subir un archivo: queda `PENDING` y en la pestaña *Network* (filtro `uploads`) aparece `GET /uploads/:id` **cada 3 s**. Volver a iniciar el worker: el upload pasa a `COMPLETED` sin recargar, se piden los resultados y **las consultas se detienen**. El polling se pausa si la pestaña no está visible (comportamiento por defecto de React Query) y se reanuda al volver.
 
-Tests del backend: `npm test` (123 unitarios y de API). Test de integración del bloqueo de fila contra una base **descartable** ya migrada:
+Tests del backend: `npm test` (134 unitarios y de API). Test de integración del bloqueo de fila contra una base **descartable** ya migrada:
 
 ```bash
 TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/<base_de_prueba> npm test -- PrismaUploadRepository

@@ -68,7 +68,7 @@ flowchart TB
 | **RDS PostgreSQL Multi-AZ** | Standby sincrónico en otra AZ con failover automático | Los uploads y sus filas no se pierden si cae una zona. |
 | **S3 privado** | Guarda el CSV original; *lifecycle* a Glacier a los 90 días | El archivo queda para auditoría o reproceso sin pagar almacenamiento caliente. |
 | **SQS + DLQ** | Desacopla la subida del procesamiento; tras 3 fallos el mensaje va a la DLQ | La API responde `202` al instante; los mensajes envenenados se aíslan en vez de reintentarse para siempre. |
-| **VPC Endpoints** | S3 (gateway) y SQS (interface) | El tráfico a S3/SQS no sale por el NAT: más barato y no pasa por Internet. |
+| **VPC Endpoints** | S3 (gateway) y SQS (interface) | El tráfico a S3/SQS no sale por el NAT: más barato y no pasa por Internet. En el diagrama, las flechas a SQS van directo para que se lea mejor, pero también pasan por su endpoint. |
 | **Secrets Manager** | Credenciales de RDS inyectadas como variables de entorno en la task definition | Sin secretos en el código ni en la imagen; rotación automática. |
 | **IAM task roles** | API: `s3:PutObject`, `sqs:SendMessage`. Worker: `s3:GetObject`, `sqs:ReceiveMessage/DeleteMessage` | Cada servicio solo puede hacer lo que necesita. Reemplaza las claves `test/test` de LocalStack. |
 | **CloudWatch** | Logs JSON de pino, métricas de ECS/RDS/SQS, alarmas (DLQ > 0, CPU, errores 5xx del ALB) | Un mensaje en la DLQ es un upload que alguien tiene que mirar. |
