@@ -30,15 +30,38 @@ export const testConfig: IConvictProps = {
   worker: { pollWaitSeconds: 0, maxReceiveCount: 3 },
 };
 
+/**
+ * Stores copies, like a database: changing an aggregate in memory never changes
+ * what is stored until it is saved. Sharing the object would hide lost writes.
+ */
+const copyOf = (upload: Upload): Upload => {
+  const copy = Upload.fromSnapshot({
+    id: upload.id,
+    fileName: upload.fileName,
+    fileUrl: upload.fileUrl,
+    status: upload.status,
+    userId: upload.userId,
+    totalRows: upload.totalRows,
+    processedRows: upload.processedRows,
+    failedRows: upload.failedRows,
+    errorMessage: upload.errorMessage,
+    createdAt: upload.createdAt,
+    updatedAt: upload.updatedAt,
+  });
+  if (copy.isLeft()) throw copy.value;
+  return copy.value;
+};
+
 export class InMemoryUploadRepository implements IUploadRepository {
   readonly uploads = new Map<string, Upload>();
 
   async save(upload: Upload): Promise<void> {
-    this.uploads.set(upload.id, upload);
+    this.uploads.set(upload.id, copyOf(upload));
   }
 
   async findById(id: string): Promise<Upload | null> {
-    return this.uploads.get(id) ?? null;
+    const stored = this.uploads.get(id);
+    return stored ? copyOf(stored) : null;
   }
 
   async findPaginated({ page, limit }: Pagination): Promise<PaginatedUploads> {
@@ -46,10 +69,22 @@ export class InMemoryUploadRepository implements IUploadRepository {
     return { items: sorted.slice((page - 1) * limit, page * limit), total: sorted.length };
   }
 
-  /** Mirrors the Prisma transaction: rows and upload change together. */
-  async saveProcessingResult(upload: Upload, records: ActivityData[]): Promise<void> {
+  /** Mirrors the Prisma transaction: rows and upload change together, guarded by the stored status. */
+  async saveProcessingResult(upload: Upload, records: ActivityData[]): Promise<boolean> {
+    if (!this.isStillProcessing(upload.id)) return false;
     this.activityData?.replaceForUpload(upload.id, records);
-    this.uploads.set(upload.id, upload);
+    this.uploads.set(upload.id, copyOf(upload));
+    return true;
+  }
+
+  async saveIfStillProcessing(upload: Upload): Promise<boolean> {
+    if (!this.isStillProcessing(upload.id)) return false;
+    this.uploads.set(upload.id, copyOf(upload));
+    return true;
+  }
+
+  private isStillProcessing(id: string): boolean {
+    return this.uploads.get(id)?.status === 'PROCESSING';
   }
 
   constructor(private readonly activityData?: InMemoryActivityDataRepository) {}

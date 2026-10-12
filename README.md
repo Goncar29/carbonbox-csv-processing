@@ -95,7 +95,11 @@ SQS entrega cada mensaje **al menos una vez**, así que el worker tolera duplica
 | Falla en el **último** intento (3/3) | El upload pasa a `FAILED` (el polling del frontend termina) y el mensaje va a la DLQ |
 | Mensaje inválido (JSON roto) | No se borra: termina en la DLQ para inspección |
 
-Las filas y el estado `COMPLETED` se guardan en **una transacción** de Prisma (borra filas de intentos previos → inserta → actualiza el upload): un reintento nunca duplica filas. Si SQS no responde, el worker reintenta con **backoff exponencial** (1 s, 2 s, 4 s… hasta 30 s).
+Las filas y el estado `COMPLETED` se guardan en **una transacción** de Prisma (borra filas de intentos previos → inserta → actualiza el upload): un reintento nunca duplica filas.
+
+**Varios workers con el mismo mensaje** (SQS estándar puede entregarlo dos veces y en AWS el worker escala en ECS): la transacción toma un **bloqueo de fila** (`SELECT ... FOR UPDATE`) sobre el upload y solo escribe si sigue en `PROCESSING`. El segundo worker espera, ve el estado final y no escribe nada (`skipped`). El paso a `FAILED` usa un update condicional (`WHERE status = 'PROCESSING'`), así una falla tardía nunca pisa un `COMPLETED`. Cubierto por un test de integración contra Postgres real (`TEST_DATABASE_URL=... npm test PrismaUploadRepository`).
+
+Si SQS no responde, el worker reintenta con **backoff exponencial** (1 s, 2 s, 4 s… hasta 30 s).
 
 ## 4. Arquitectura
 

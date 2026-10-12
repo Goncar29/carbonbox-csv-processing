@@ -15,6 +15,8 @@ const FINAL_STATUSES = ['COMPLETED', 'FAILED'];
  * - COMPLETED / FAILED upload -> skip (duplicate message).
  * - PENDING -> start; PROCESSING -> restart (previous attempt crashed).
  * - Rows and the COMPLETED status are saved in one transaction.
+ * - Final writes only apply while the stored upload is PROCESSING, so two workers
+ *   receiving the same message never duplicate rows or overwrite each other.
  */
 export class ProcessFileCommandHandler implements ICommandHandler<ProcessFileCommand, ProcessFileResult> {
   constructor(
@@ -45,7 +47,7 @@ export class ProcessFileCommandHandler implements ICommandHandler<ProcessFileCom
       // Not a controller: this catch turns an infrastructure failure on the last
       // SQS delivery into a domain state, so the upload never stays PROCESSING forever.
       if (command.isLastAttempt) {
-        await this.failAfterRetries(upload, command.maxReceiveCount);
+        await this.failAfterRetries(upload.id, command.maxReceiveCount);
       }
       throw error; // Not deleted from the queue: SQS retries or moves it to the DLQ.
     }
@@ -58,8 +60,8 @@ export class ProcessFileCommandHandler implements ICommandHandler<ProcessFileCom
     if (parsed.isLeft()) {
       const failed = upload.fail(parsed.value.message);
       if (failed.isLeft()) return Either.left(failed.value);
-      await this.uploadRepository.save(upload);
-      return Either.right({ uploadId: upload.id, outcome: 'failed' });
+      const saved = await this.uploadRepository.saveIfStillProcessing(upload);
+      return Either.right({ uploadId: upload.id, outcome: saved ? 'failed' : 'skipped' });
     }
 
     const { rows, errors, totalRows } = parsed.value;
@@ -86,15 +88,23 @@ export class ProcessFileCommandHandler implements ICommandHandler<ProcessFileCom
       return Either.left(completed.value);
     }
 
-    await this.uploadRepository.saveProcessingResult(upload, records);
-    return Either.right({ uploadId: upload.id, outcome: 'completed' });
+    // False when another delivery of the same message finished the upload first.
+    const saved = await this.uploadRepository.saveProcessingResult(upload, records);
+    return Either.right({ uploadId: upload.id, outcome: saved ? 'completed' : 'skipped' });
   }
 
-  private async failAfterRetries(upload: Upload, attempts: number): Promise<void> {
-    const failed = upload.fail(`Processing failed after ${attempts} attempts. Please upload the file again.`);
+  /**
+   * Reloads the upload instead of reusing the in-memory one: by now it may already be
+   * COMPLETED in memory (the failed transaction never stored it), and COMPLETED -> FAILED
+   * is not a valid transition. If this save also fails, the original error is still
+   * rethrown and logged by the worker.
+   */
+  private async failAfterRetries(uploadId: string, attempts: number): Promise<void> {
+    const stored = await this.uploadRepository.findById(uploadId).catch(() => null);
+    if (stored?.status !== 'PROCESSING') return; // Another delivery already finished it.
+    const failed = stored.fail(`Processing failed after ${attempts} attempts. Please upload the file again.`);
     if (failed.isRight()) {
-      // If this save also fails, the original error is still rethrown and logged by the worker.
-      await this.uploadRepository.save(upload).catch(() => undefined);
+      await this.uploadRepository.saveIfStillProcessing(stored).catch(() => false);
     }
   }
 }

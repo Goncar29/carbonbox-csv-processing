@@ -135,6 +135,52 @@ describe('ProcessFileCommandHandler', () => {
         errorMessage: 'Processing failed after 3 attempts. Please upload the file again.',
       });
     });
+
+    it('marks the upload FAILED when the result transaction fails on the last attempt', async () => {
+      const upload = await seed(`${HEADER}\nWater,1,m3,2024-01-19\n`);
+      jest.spyOn(uploads, 'saveProcessingResult').mockRejectedValueOnce(new Error('transaction failed'));
+
+      await expect(handler.execute(command(upload.id, MAX_RECEIVES))).rejects.toThrow('transaction failed');
+
+      expect(await uploads.findById(upload.id)).toMatchObject({
+        status: 'FAILED',
+        errorMessage: 'Processing failed after 3 attempts. Please upload the file again.',
+      });
+      expect(await activityData.findByUploadId(upload.id)).toHaveLength(0);
+    });
+  });
+
+  describe('concurrent deliveries of the same message', () => {
+    it('skips without writing when another worker completed the upload first', async () => {
+      const upload = await seed(`${HEADER}\nWater,1,m3,2024-01-19\n`);
+      const otherWorker = new ProcessFileCommandHandler(uploads, storage, new CsvParserService());
+      const realGet = storage.get.bind(storage);
+      // While this worker downloads the file, another delivery processes the same upload.
+      jest.spyOn(storage, 'get').mockImplementationOnce(async (key) => {
+        await otherWorker.execute(command(upload.id));
+        return realGet(key);
+      });
+
+      const result = await handler.execute(command(upload.id));
+
+      expect(result.isRight() && result.value.outcome).toBe('skipped');
+      expect(await activityData.findByUploadId(upload.id)).toHaveLength(1);
+      expect((await uploads.findById(upload.id))?.status).toBe('COMPLETED');
+    });
+
+    it('does not overwrite a COMPLETED upload with FAILED after a late last-attempt failure', async () => {
+      const upload = await seed(`${HEADER}\nWater,1,m3,2024-01-19\n`);
+      const otherWorker = new ProcessFileCommandHandler(uploads, storage, new CsvParserService());
+      jest.spyOn(storage, 'get').mockImplementationOnce(async () => {
+        await otherWorker.execute(command(upload.id));
+        throw new Error('S3 unavailable');
+      });
+
+      await expect(handler.execute(command(upload.id, MAX_RECEIVES))).rejects.toThrow('S3 unavailable');
+
+      expect((await uploads.findById(upload.id))?.status).toBe('COMPLETED');
+      expect(await activityData.findByUploadId(upload.id)).toHaveLength(1);
+    });
   });
 
   it('returns NotFoundError for an unknown upload', async () => {

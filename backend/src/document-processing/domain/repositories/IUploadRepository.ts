@@ -22,10 +22,14 @@ export interface PaginatedUploads {
 export interface IUploadRepository {
   save(upload: Upload): Promise<void>;
   /**
-   * Atomically replaces the upload's rows and saves its new state.
+   * Atomically replaces the upload's rows and saves its new state, only if the stored
+   * upload is still PROCESSING. Returns false, writing nothing, when another delivery
+   * of the same message already finished it (SQS delivers at least once).
    * Rows belong to the Upload aggregate, so they are written through its repository.
    */
-  saveProcessingResult(upload: Upload, records: ActivityData[]): Promise<void>;
+  saveProcessingResult(upload: Upload, records: ActivityData[]): Promise<boolean>;
+  /** Saves the upload only if the stored one is still PROCESSING. Returns whether it was saved. */
+  saveIfStillProcessing(upload: Upload): Promise<boolean>;
   findById(id: string): Promise<Upload | null>;
   findPaginated(pagination: Pagination): Promise<PaginatedUploads>;
   countByStatus(): Promise<StatusCounts>;
