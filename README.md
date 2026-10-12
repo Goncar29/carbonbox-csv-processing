@@ -1,6 +1,6 @@
 # CarbonBox — Procesamiento Asíncrono de Documentos CSV
 
-> Estado: **en construcción** (etapa T3 de 6 completada). Este README se actualiza al cerrar cada etapa.
+> Estado: **en construcción** (etapa T4 de 6 completada: backend completo de punta a punta). Este README se actualiza al cerrar cada etapa.
 > Seguimiento detallado: [`odd/tasks/carbonbox-document-processing.md`](odd/tasks/carbonbox-document-processing.md).
 
 ## 1. Descripción
@@ -36,8 +36,8 @@ npx prisma migrate dev
 npm test             # tests unitarios y de API
 npm run dev          # API en http://localhost:3001
 
-# 3. Worker (otra terminal) — disponible desde la etapa T4
-# npm run worker
+# 3. Worker (otra terminal, desde backend/)
+npm run worker
 
 # 4. Frontend (otra terminal) — disponible desde la etapa T5
 # cd frontend && npm install && npm run dev
@@ -64,6 +64,38 @@ Los recursos de AWS se crean automáticamente al iniciar LocalStack mediante `in
 | GET | `/health` | `{ status: "ok" }` |
 
 Errores con formato uniforme: `{ statusCode, error, message }` — `400` validación, `404` no encontrado, `409` transición de estado inválida, `413` archivo mayor a 10 MB, `500` error inesperado (mensaje genérico; el detalle solo va al log).
+
+### Procesamiento del CSV
+
+Formato obligatorio: `category,amount,unit,date` (se aceptan columnas en cualquier orden y mayúsculas; BOM, `\r\n`, comillas y espacios se manejan).
+
+| Problema | Resultado del upload |
+|----------|----------------------|
+| Archivo vacío, sin filas de datos, columna faltante/duplicada/desconocida o CSV mal formado | `FAILED`, con el motivo en `errorMessage` |
+| Filas puntuales inválidas (campo vacío, `amount` no positivo o no numérico, fecha inexistente o fuera de `YYYY-MM-DD`) | `COMPLETED`: se guardan las filas válidas y `errorMessage` lista cada error con fila y columna |
+
+Ejemplo de `errorMessage` de un upload `COMPLETED` con filas inválidas (fila = línea del archivo, encabezado = línea 1; máximo 100 líneas):
+
+```
+Row 4, column amount: must be a positive number (value: "-5")
+Row 5, column category: is required (value: "")
+Row 5, column date: must be a valid date in YYYY-MM-DD format (value: "2024-02-30")
+```
+
+### Worker idempotente
+
+SQS entrega cada mensaje **al menos una vez**, así que el worker tolera duplicados y caídas:
+
+| Estado del upload al recibir el mensaje | Acción |
+|-----------------------------------------|--------|
+| `COMPLETED` o `FAILED` | Mensaje duplicado: se borra sin escribir nada |
+| `PENDING` | `startProcessing()` → procesa |
+| `PROCESSING` | Un intento anterior se cayó: `restartProcessing()` → reprocesa desde cero |
+| Falla inesperada (S3/base caída) | No se borra el mensaje: SQS lo reintenta (visibility timeout 60 s) |
+| Falla en el **último** intento (3/3) | El upload pasa a `FAILED` (el polling del frontend termina) y el mensaje va a la DLQ |
+| Mensaje inválido (JSON roto) | No se borra: termina en la DLQ para inspección |
+
+Las filas y el estado `COMPLETED` se guardan en **una transacción** de Prisma (borra filas de intentos previos → inserta → actualiza el upload): un reintento nunca duplica filas. Si SQS no responde, el worker reintenta con **backoff exponencial** (1 s, 2 s, 4 s… hasta 30 s).
 
 ## 4. Arquitectura
 
@@ -103,6 +135,9 @@ Bounded context: **`document-processing`**. Las dependencias apuntan hacia adent
 | `POST /uploads` responde `202 Accepted` | El upload queda registrado, pero el procesamiento ocurre después, de forma asíncrona. | — |
 | Orden en `CreateUpload`: S3 → base de datos → SQS | El registro debe existir antes de que el worker reciba el mensaje. | Si SQS falla después de guardar, el upload queda en `PENDING` (ver limitaciones). |
 | Configuración con convict | Esquema tipado con validación al arrancar; cada valor se sobrescribe por variable de entorno. Las variables se cargan con `--env-file` nativo de Node (sin `dotenv`). | — |
+| `csv-parse` en lugar de `split(',')` | Maneja comillas con comas, `\r\n`, BOM de Excel y reporta el número de línea real de cada registro. | Una dependencia más. |
+| `restartProcessing()` como método aparte | El reintento tras una caída es explícito; la tabla de transiciones sigue estricta y `startProcessing()` dos veces sigue fallando. | — |
+| Errores de fila en `errorMessage` (texto, una línea por error) | Respeta el schema mínimo: no se agregan campos ni tablas. | Para filtrar errores por columna habría que parsear el texto; con más tiempo, una tabla `RowError`. |
 | `GET /uploads/summary` | El dashboard necesita conteos por estado y ningún endpoint del enunciado los provee. Decisión del candidato; no agrega campos a la base. | Endpoint adicional al enunciado. |
 
 ## 6. Limitaciones conocidas

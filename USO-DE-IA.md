@@ -39,8 +39,11 @@
 - [x] Adaptadores de S3 y SQS, endpoint de resumen para el dashboard
 - [x] Tests de API con `fastify.inject` (escritos antes de la implementación)
 
-### Backend — procesamiento asíncrono
-- [ ] _(etapa T4)_
+### Backend — procesamiento asíncrono (T4)
+- [x] Parser CSV con validaciones y reporte de errores por fila y columna (29 tests escritos antes)
+- [x] `ProcessFileCommandHandler` idempotente y transacción de Prisma
+- [x] Consumidor SQS y worker con backoff exponencial
+- [x] Verificación independiente con un subagente que no escribió el código (ver más abajo)
 
 ### Frontend
 - [ ] _(etapa T5)_
@@ -83,6 +86,15 @@
 
 10. **Errores de negocio vs. errores inesperados en HTTP:**
     - Un único manejador traduce `ValidationError` → 400, `NotFoundError` → 404, `ConflictError` → 409. Los errores inesperados devuelven un 500 genérico para no exponer detalles internos (por ejemplo, IPs de la base de datos) y se registran en el log.
+
+11. **Decisiones de negocio que la IA no tomó sola (T4):**
+    - La IA presentó 4 decisiones abiertas con su recomendación y yo decidí: worker idempotente, transacción única, `COMPLETED` con detalle de errores por fila y columna (reutilizando `errorMessage` para no inventar campos) y un endpoint de resumen para el dashboard.
+
+12. **Un test que falló a propósito:**
+    - Al exigir un reporte cuando hay filas fallidas, un test anterior (completar con `failedRows: 2` sin reporte) empezó a fallar. No era un bug: el test avisaba que cambié una regla existente. Como el cambio era intencional, se actualizó el test.
+
+13. **Tipos de una librería que no reflejan la realidad:**
+    - Los tipos de `csv-parse` no contemplan que la opción `info: true` cambia la forma del resultado. Se verificó en vivo la forma real antes de hacer la conversión de tipos, y se dejó el motivo en un comentario.
 
 ## ¿Qué Aprendí?
 
@@ -127,7 +139,7 @@ _Sección para completar con mis propias palabras al cierre de cada etapa._
 | T1 — Infraestructura | 30 min | ~20 min |
 | T2 — Backend core | 50 min | ~35 min |
 | T3 — API | 40 min | ~40 min |
-| T4 — Procesamiento asíncrono | 50 min | |
+| T4 — Procesamiento asíncrono | 50 min | ~55 min |
 | T5 — Frontend | 60 min | |
 | T6 — Documentación final | 20 min | |
 | **Total** | **4 h** | |

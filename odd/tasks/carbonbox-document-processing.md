@@ -32,7 +32,7 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 | T1 | S1, S8 | Infra: docker-compose postgres+localstack, bucket/queue init, Prisma schema + migration (30m) | inline | done | (see Log L10) |
 | T2 | S3, S5 | Backend core: shared (Either, CQRS, AggregateRoot), domain, Prisma repos, Awilix, Jest (50m) | inline | done | (see Log L16) |
 | T3 | S4, S5 | API: Fastify routes, controllers, query/command handlers, error middleware, summary endpoint, S3 storage + SQS publisher (40m) | inline | done | (see Log L23) |
-| T4 | S2, S6 | Async: SQS consumer, CSV parser (TDD), ProcessFile handler, saveProcessingResult transaction, idempotent worker (50m) | inline | pending | |
+| T4 | S2, S6 | Async: SQS consumer, CSV parser (TDD), ProcessFile handler, saveProcessingResult transaction, idempotent worker (50m) | inline | done (verify pending) | 2ec57db, 53f94a2 |
 | T5 | S7 | Frontend: Next.js pages, React Query hooks, polling (60m) | inline | pending | |
 | T6 | S8 | Docs: README, USO-DE-IA.md, AWS diagram, sample-data.csv, Dockerfile (20m) | inline | pending | |
 
@@ -63,4 +63,6 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 - **L23 (T3 evidence):** RED (missing App) → GREEN: 65 tests pass via `npm test` (16 API tests through `fastify.inject` + in-memory fakes), typecheck OK. Incident: `cookie` is ESM-only → Jest needs `--experimental-vm-modules` (verified in official Jest docs, Node 24.19 ≥ 24.9). Real smoke against Postgres + LocalStack: POST 202, .txt 400, GET id 200, list 200, results 200, summary 200, unknown 404; S3 object `uploads/<id>/smoke.csv` and SQS message `{"uploadId":...}` verified. One PENDING smoke upload + its SQS message intentionally left for the T4 worker. Pinned: fastify 5.12.5, @fastify/multipart 10.1.3, @fastify/cors 11.3.1, convict 6.2.5, @aws-sdk/* 3.1149.0.
 - **L24 (2026-10-12, user, verbatim):** "agregemos PROCESSING, para el reintento de una caida, explicame los risk"
 - **L25 (T4 part 1 evidence):** `Upload.restartProcessing()` added (PROCESSING → PROCESSING only, explicit method; lifecycle table unchanged, `startProcessing` twice still rejected). RED (TS2339 missing method) → GREEN: 70 tests, typecheck OK.
-- **Next:** T4 — async processing (parser, transaction, worker).
+- **L26 (2026-10-12, user, verbatim):** "vamos con T4 parser CSV con TDD, transacción y worker idempotente"
+- **L27 (T4 evidence, commit 53f94a2):** RED observed for parser, Upload.complete report, handler and worker → GREEN: 119 tests, typecheck OK. `Upload.complete(counters, rowErrorReport?)` now requires a report when failedRows > 0 (old test updated intentionally). Real E2E (API + worker processes, Postgres + LocalStack): T3 leftover upload → COMPLETED 1/1; mixed CSV → COMPLETED 2/4 with row/column report; missing `amount` column → FAILED; main queue and DLQ empty afterwards. Pinned csv-parse 7.0.3, pino 10.4.0. Risk: item 4 (concurrency: redelivery, transaction, last-attempt) → independent verifier launched on c5a471b..53f94a2 in an isolated DB/bucket/queues.
+- **Next:** verifier verdict → corrections (bounded) → T5 frontend.
