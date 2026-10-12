@@ -27,7 +27,7 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 | ID | Specs | Stage (budget) | Route | Status | Commit |
 |----|-------|----------------|-------|--------|--------|
 | T0 | — | Repo init + ODD doc (10m) | inline | done | (see Log) |
-| T1 | S1, S8 | Infra: docker-compose postgres+localstack, bucket/queue init, Prisma schema + migration (30m) | inline | pending | |
+| T1 | S1, S8 | Infra: docker-compose postgres+localstack, bucket/queue init, Prisma schema + migration (30m) | inline | done | (see Log L10) |
 | T2 | S3, S5 | Backend core: shared (Either, CQRS, AggregateRoot), domain, Prisma repos, Awilix, Jest (50m) | inline | pending | |
 | T3 | S4, S5 | API: Fastify routes, controllers, query/command handlers, error middleware (40m) | inline | pending | |
 | T4 | S2, S6 | Async: S3 storage, SQS publisher/consumer, CSV parser (TDD), ProcessFile handler, worker (50m) | inline | pending | |
@@ -40,4 +40,10 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 - **L2 (2026-10-12, user, verbatim):** "1- iniciaremos con git init e ir documentando 2- vamos a hacer polling mientras no este en completed ni failed 3- usaremos localstack sqs + s3 ya que suma mas puntos 4- usaremos ODD para trabajar en este proyecto por etapas, cada etapa se documenta, me explicaras, dar sugerencias y recomendacion de que y porque y siempre teniendo en cuenta el limite de ventana de contexto y establecido en 4 horas de trabajo"
 - **L3 (decision):** Home dir `C:/Users/carlo` is itself a git repo; project gets its own nested repo (`git init -b main`) so history stays isolated.
 - **L4 (decision):** Each stage = one work-unit commit (Conventional Commits, no AI attribution per user rule). Stages are sized so a fresh session can resume from this document + `git log`, protecting the context window.
-- **Next:** T1 — infra.
+- **L5 (2026-10-12, user, verbatim):** "leido el archivo ODD, lo apruebo, fijaremos una version concreta de localstack, ese otro archivo no lo mezcles con este comenzamos con T1"
+- **L6 (decision, evidence):** LocalStack pinned to `4.14.0` (2026-02-26), last community tag before 2026.03.0 made `LOCALSTACK_AUTH_TOKEN` mandatory. Verified live: health reports `"edition": "community"` with no token.
+- **L7 (decision):** Prisma pinned to `6.19.3` (`npm view prisma dist-tags` shows `latest` = `8.0.0-rc.22`, a release candidate). Prisma 6 keeps the classic `prisma-client-js` generator without driver adapters / `prisma.config.ts`, which fits the 4h budget. Schema lives at the spec path `src/document-processing/infrastructure/persistence/models/schema.prisma` (set in package.json `prisma.schema`). Added `@@index([uploadId])` (index, not a field).
+- **L8 (incident):** First migration hit P1000 because a native Windows PostgreSQL service also listens on 5432, and the old compose volume `prueba-tecnica-fullstack_postgres_data` (2026-10-11 attempt, 16 uploads) was reused. Fix without deleting anything: host port `5433`, compose `name: carbonbox` so volumes are `carbonbox_*`. Old volumes left untouched (user decision L5: do not mix).
+- **L9 (constraint):** Permission settings deny writing `.env*` files from the assistant; user creates `backend/.env.example` and `backend/.env` manually (content in conversation). `DATABASE_URL` port is 5433.
+- **L10 (verification T1):** `docker compose up -d --wait` → both healthy. Migration `20261012145128_init` applied on empty DB (0 uploads). Bucket `carbonbox-uploads`, queues `file-processing-queue` + `file-processing-dlq`, RedrivePolicy `maxReceiveCount: 3`.
+- **Next:** T2 — backend core.

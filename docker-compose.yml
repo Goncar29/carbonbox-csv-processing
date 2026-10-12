@@ -1,0 +1,46 @@
+# Explicit project name: isolates volumes from any other compose project in this folder.
+name: carbonbox
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: carbonbox-postgres
+    environment:
+      POSTGRES_DB: document_processing
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      # Host 5433: avoids clashing with a native PostgreSQL service on 5432.
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d document_processing"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  localstack:
+    # Pinned: 4.14.0 is the last community release that starts without
+    # LOCALSTACK_AUTH_TOKEN (images from 2026.03.0 on require an account).
+    image: localstack/localstack:4.14.0
+    container_name: carbonbox-localstack
+    environment:
+      SERVICES: s3,sqs
+      DEBUG: 0
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+      # Scripts in ready.d run once LocalStack is ready: creates bucket + queues.
+      - ./infra/localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres_data:
+  localstack_data:

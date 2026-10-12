@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Fields follow the minimum schema defined in the technical test spec exactly.
+// Ids have no default on purpose: they are generated in the domain layer.
+model Upload {
+  id            String   @id
+  fileName      String
+  fileUrl       String
+  status        String // PENDING, PROCESSING, COMPLETED, FAILED
+  userId        String
+  totalRows     Int?
+  processedRows Int?
+  failedRows    Int?
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  activityData ActivityData[]
+}
+
+model ActivityData {
+  id        String   @id
+  uploadId  String
+  category  String
+  amount    Float
+  unit      String
+  date      DateTime
+  createdAt DateTime @default(now())
+
+  upload Upload @relation(fields: [uploadId], references: [id])
+
+  // Not a field: PostgreSQL does not index foreign keys automatically,
+  // and GET /uploads/:id/results filters by uploadId.
+  @@index([uploadId])
+}
