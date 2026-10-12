@@ -14,6 +14,9 @@ interface ApiErrorBody {
   message: string;
 }
 
+export const isNotFoundError = (error: unknown): boolean =>
+  isAxiosError(error) && error.response?.status === 404;
+
 /** Turns any thrown value into a message that can be shown to the user. */
 export function getErrorMessage(error: unknown): string {
   if (isAxiosError<ApiErrorBody>(error)) {

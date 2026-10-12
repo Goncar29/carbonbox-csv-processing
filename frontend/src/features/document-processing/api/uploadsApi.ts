@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/shared/lib/api-client';
+import { apiClient, isNotFoundError } from '@/shared/lib/api-client';
 import {
   CreatedUpload,
   isFinalStatus,
@@ -55,12 +55,16 @@ export function useUploads(page: number) {
 /**
  * Polls every 3s while the upload is not in a final status (PENDING or PROCESSING),
  * so the page also follows an upload the worker has not picked up yet.
+ * Stops on 404: the upload does not exist and never will. Other errors (network blip)
+ * keep polling, because the upload may still be processing.
  */
 export function useUpload(id: string) {
   return useQuery({
     queryKey: uploadKeys.detail(id),
     queryFn: () => uploadsApi.getById(id),
-    refetchInterval: (query) => (isFinalStatus(query.state.data?.status) ? false : POLLING_INTERVAL_MS),
+    retry: (failureCount, error) => !isNotFoundError(error) && failureCount < 1,
+    refetchInterval: (query) =>
+      isNotFoundError(query.state.error) || isFinalStatus(query.state.data?.status) ? false : POLLING_INTERVAL_MS,
   });
 }
 
