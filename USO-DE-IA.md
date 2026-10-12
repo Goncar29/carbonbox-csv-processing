@@ -76,6 +76,18 @@ _Sección para completar con mis propias palabras al cierre de cada etapa._
    - Aprendí que es un emulador de AWS que se ejecuta localmente (en un contenedor Docker) y expone las mismas APIs que los servicios reales, en este caso S3 (almacenamiento) y SQS (el servicio de colas de mensajería de AWS).
    - Esto permite desarrollar y probar el flujo asíncrono sin una cuenta de AWS ni costos: el mismo código funcionará contra AWS real cambiando solo el endpoint y las credenciales.
 
+2. **Either:**
+   - Entendí que Either es una forma de no depender de `try/catch` ni de valores como `null` para indicar un error: se usa `Right` para decir que algo salió bien y `Left` para decir que algo falló.
+   - Precisión que incorporé: Either es para los errores *esperables* de negocio y, a diferencia de `null`, trae el motivo del error tipado. Los fallos inesperados (por ejemplo, la base de datos caída) se siguen lanzando y los atrapa el manejador central.
+
+3. **CQRS:**
+   - Es un patrón arquitectónico que ayuda a separar responsabilidades.
+   - Precisión que incorporé: separa específicamente la *escritura* (commands, cambian estado) de la *lectura* (queries, nunca cambian estado). Aquí se aplica a nivel de código, con una misma base de datos.
+
+4. **Aggregate Root:**
+   - Viene de DDD y funciona como punto de defensa de la entrada desde el exterior.
+   - Precisión que incorporé: es la frontera de consistencia; protege las invariantes (por ejemplo, no se puede completar un upload que nunca empezó a procesarse).
+
 ## Limitaciones Encontradas con IA
 
 1. **Información desactualizada por defecto:**
