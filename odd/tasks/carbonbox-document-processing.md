@@ -33,7 +33,7 @@ Branch: `feat/document-processing` · Delivery: `ask-on-risk` (atomic work-unit 
 | T2 | S3, S5 | Backend core: shared (Either, CQRS, AggregateRoot), domain, Prisma repos, Awilix, Jest (50m) | inline | done | (see Log L16) |
 | T3 | S4, S5 | API: Fastify routes, controllers, query/command handlers, error middleware, summary endpoint, S3 storage + SQS publisher (40m) | inline | done | (see Log L23) |
 | T4 | S2, S6 | Async: SQS consumer, CSV parser (TDD), ProcessFile handler, saveProcessingResult transaction, idempotent worker (50m) | inline | done (verify pending) | 2ec57db, 53f94a2 |
-| T5 | S7 | Frontend: Next.js pages, React Query hooks, polling (60m) | inline | done | (see Log L30) |
+| T5 | S7 | Frontend: Next.js pages, React Query hooks, polling (60m) | inline | done | 476cc04 |
 | T6 | S8 | Docs: README, USO-DE-IA.md, AWS diagram, sample-data.csv, Dockerfile (20m) | inline | pending | |
 
 ## Log
